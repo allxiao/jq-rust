@@ -610,18 +610,22 @@ fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 fn builtin_gmtime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(n) => {
-            let timestamp = n.as_f64() as i64;
+            let timestamp_f64 = n.as_f64();
+            let timestamp = timestamp_f64 as i64;
+            let frac_secs = timestamp_f64 - timestamp as f64; // fractional seconds
             use chrono::{TimeZone, Datelike, Timelike};
             match chrono::Utc.timestamp_opt(timestamp, 0) {
                 chrono::LocalResult::Single(dt) => {
                     // jq format: [year, month (0-11), day (1-31), hour, minute, second, weekday (0=Sun), yearday (0-365)]
+                    // Second field includes fractional part
+                    let secs_with_frac = dt.second() as f64 + frac_secs;
                     let arr = vec![
                         Jv::from_i64(dt.year() as i64),
                         Jv::from_i64(dt.month0() as i64),  // 0-indexed month
                         Jv::from_i64(dt.day() as i64),
                         Jv::from_i64(dt.hour() as i64),
                         Jv::from_i64(dt.minute() as i64),
-                        Jv::from_i64(dt.second() as i64),
+                        Jv::from_f64(secs_with_frac),  // Include fractional seconds
                         Jv::from_i64(dt.weekday().num_days_from_sunday() as i64),
                         Jv::from_i64(dt.ordinal0() as i64),  // 0-indexed day of year
                     ];
@@ -640,7 +644,11 @@ fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
             if arr.len() < 3 {
                 return err("mktime requires at least [year, month, day]".to_string());
             }
-            let year = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(1970) as i32;
+            // Validate that year is a number
+            let year = match arr.get(0) {
+                Some(Jv::Number(n)) => n.as_i64().unwrap_or(1970) as i32,
+                _ => return err("mktime requires parsed datetime inputs".to_string()),
+            };
             let month = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as u32 + 1; // convert from 0-indexed
             let day = arr.get(2).and_then(|v| v.as_i64()).unwrap_or(1) as u32;
             let hour = arr.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
@@ -665,7 +673,7 @@ fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
 fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let format = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
-        _ => return err("strftime requires format string".to_string()),
+        _ => return err("strftime/1 requires a string format".to_string()),
     };
 
     use chrono::{TimeZone, Datelike, Timelike, NaiveDate};
@@ -683,7 +691,11 @@ fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
         }
         Jv::Array(arr) => {
             // Input is [year, month (0-11), day, hour, minute, second, ...]
-            let year = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(1970) as i32;
+            // Validate that year is a number
+            let year = match arr.get(0) {
+                Some(Jv::Number(n)) => n.as_i64().unwrap_or(1970) as i32,
+                _ => return err("strftime/1 requires parsed datetime inputs".to_string()),
+            };
             let month = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as u32 + 1; // convert from 0-indexed
             let day = arr.get(2).and_then(|v| v.as_i64()).unwrap_or(1) as u32;
             let hour = arr.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
