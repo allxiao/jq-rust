@@ -2130,8 +2130,8 @@ fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
         Jv::String(s) => {
             use crate::jv::parse_json;
             let str_val = s.as_str();
-            // jq accepts "nan" as a special value for NaN
-            if str_val == "nan" {
+            // jq accepts "nan", "NaN", "-NaN" as special values for NaN
+            if str_val == "nan" || str_val == "NaN" || str_val == "-NaN" {
                 return ok(Jv::from_f64(f64::NAN));
             }
             match parse_json(str_val) {
