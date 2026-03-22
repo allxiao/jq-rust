@@ -82,12 +82,9 @@ pub fn csv_field(v: &Jv) -> String {
         Jv::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
         Jv::Number(n) => format!("{}", n),
         Jv::String(s) => {
+            // jq always quotes strings in CSV output
             let s = s.as_str();
-            if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-                format!("\"{}\"", s.replace('"', "\"\""))
-            } else {
-                s.to_string()
-            }
+            format!("\"{}\"", s.replace('"', "\"\""))
         }
         _ => format!("{}", v),
     }
