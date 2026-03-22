@@ -385,6 +385,10 @@
   - Iterator assignment to function call results errors with correct message
   - Both built-in and user-defined functions are handled
 - [x] Matched jq 1.8.1 string truncation in error messages (10 bytes, not characters)
+- [x] Matched jq 1.8.1 number index error message format (no index value in parens)
+- [x] Added support for function calls as lvalues in assignments
+  - def x: .[1,2]; x=10 now correctly updates both indices
+  - Fixed Index assignment to handle multiple indices from comma expressions
 - [x] Integration tests: 505/527 jq.test cases passing (95.8%)
   - Note: Some test file expectations don't match jq 1.8.1 behavior (error message formats)
 
