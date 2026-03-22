@@ -89,6 +89,8 @@ impl<'a> Parser<'a> {
         let module = if self.check(&TokenKind::Module) {
             self.advance();
             let meta = self.parse_query()?;
+            // Validate module metadata
+            self.validate_module_metadata(&meta)?;
             self.expect(&TokenKind::Semicolon)?;
             Some(meta)
         } else {
@@ -161,7 +163,10 @@ impl<'a> Parser<'a> {
 
         // Optional metadata: import "path" as foo { key: value };
         let metadata = if self.check(&TokenKind::LBrace) || self.check(&TokenKind::LParen) {
-            Some(self.parse_query()?)
+            let meta = self.parse_query()?;
+            // Validate import/include metadata
+            self.validate_module_metadata(&meta)?;
+            Some(meta)
         } else {
             None
         };
@@ -1645,6 +1650,47 @@ impl<'a> Parser<'a> {
         ParseError {
             message: message.to_string(),
             span: self.current.span,
+        }
+    }
+
+    /// Validate that module metadata is a constant object expression
+    fn validate_module_metadata(&self, expr: &Expr) -> Result<(), ParseError> {
+        // First check if it's constant (no variables, function calls, pipes, etc.)
+        if !self.is_constant_expr(expr) {
+            return Err(ParseError {
+                message: "Module metadata must be constant".to_string(),
+                span: expr.span,
+            });
+        }
+
+        // Then check if it's an object
+        if !matches!(expr.kind, ExprKind::Object(_)) {
+            return Err(ParseError {
+                message: "Module metadata must be an object".to_string(),
+                span: expr.span,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Check if an expression is a constant (can be evaluated at compile time)
+    fn is_constant_expr(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Literal(_) => true,
+            ExprKind::Array(None) => true,
+            ExprKind::Array(Some(inner)) => self.is_constant_expr(inner),
+            ExprKind::Object(entries) => {
+                entries.iter().all(|entry| {
+                    let key_const = match &entry.key {
+                        ObjectKey::Ident(_) | ObjectKey::String(_) | ObjectKey::Shorthand(_) => true,
+                        ObjectKey::Expr(e) => self.is_constant_expr(e),
+                    };
+                    key_const && self.is_constant_expr(&entry.value)
+                })
+            }
+            // Everything else is non-constant
+            _ => false,
         }
     }
 }
