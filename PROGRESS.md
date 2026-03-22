@@ -123,6 +123,8 @@
 
 ### Session 7 (2026-03-20)
 - [x] Fixed $ENV to work as a special variable
+- [x] Added scan(regex) function to find all regex matches
+- [x] Fixed splits() to use regex instead of literal string
 - [x] All 95 unit tests passing
 
 ## Phase Progress

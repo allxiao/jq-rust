@@ -1634,7 +1634,7 @@ impl Interpreter {
     }
 
     fn eval_splits(&mut self, sep_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
-        // splits(sep) - stream version of split
+        // splits(sep) - stream version of split using regex
         let sep = match self.eval_expr(sep_expr, input.clone(), ctx.clone()).next() {
             Some(Ok(Jv::String(s))) => s.as_str().to_string(),
             Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("splits requires string separator, got {}", v.type_name())))),
@@ -1644,8 +1644,15 @@ impl Interpreter {
 
         match &input {
             Jv::String(s) => {
-                let parts: Vec<Jv> = s.as_str().split(&sep).map(|p| Jv::string(p)).collect();
-                Box::new(parts.into_iter().map(Ok))
+                match regex::Regex::new(&sep) {
+                    Ok(re) => {
+                        let parts: Vec<Jv> = re.split(s.as_str())
+                            .map(|p| Jv::string(p))
+                            .collect();
+                        Box::new(parts.into_iter().map(Ok))
+                    }
+                    Err(e) => Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
+                }
             }
             _ => Box::new(std::iter::once(Err(format!("splits requires string input, got {}", input.type_name())))),
         }

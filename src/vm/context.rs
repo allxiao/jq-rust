@@ -122,6 +122,7 @@ impl BuiltinRegistry {
         self.register("splits", 1, builtin_splits);
         self.register("sub", 2, builtin_sub);
         self.register("gsub", 2, builtin_gsub);
+        self.register("scan", 1, builtin_scan);
         self.register("bsearch", 1, builtin_bsearch);
         self.register("ascii", 0, builtin_ascii);
         self.register("utf8bytelength", 0, builtin_utf8bytelength);
@@ -1484,6 +1485,29 @@ fn builtin_gsub(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
             }
         }
         _ => err("gsub requires string input".to_string()),
+    }
+}
+
+fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let pattern = match args.first() {
+        Some(Jv::String(p)) => p.as_str().to_string(),
+        _ => return err("scan requires pattern string".to_string()),
+    };
+
+    match &input {
+        Jv::String(s) => {
+            let s_str = s.as_str().to_string();
+            match regex::Regex::new(&pattern) {
+                Ok(re) => {
+                    let matches: Vec<_> = re.find_iter(&s_str)
+                        .map(|m| Ok(Jv::string(m.as_str())))
+                        .collect();
+                    Box::new(matches.into_iter())
+                }
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("scan requires string input".to_string()),
     }
 }
 
