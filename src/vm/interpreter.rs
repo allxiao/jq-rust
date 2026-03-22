@@ -5,7 +5,7 @@ use std::cell::RefCell;
 
 use crate::jv::{Jv, JvObject};
 use crate::parser::{Expr, ExprKind, Literal, BinaryOp, ObjectKey, StringPart, FuncDef, Pattern, PatternKind};
-use super::context::Context;
+use super::context::{Context, Binding};
 
 /// Result of evaluating an expression - can produce multiple values
 pub type EvalResult = Box<dyn Iterator<Item = Result<Jv, String>>>;
@@ -3862,89 +3862,116 @@ impl Interpreter {
                 // 2. Modify it with the assignment
                 // 3. Set the modified value back
 
-                // Evaluate the index
+                // Evaluate the index - collect all values for comma expressions
                 let mut idx_interp = Interpreter { ctx: ctx.clone() };
-                let idx_val = match idx_interp.eval_expr(index, current.clone(), ctx.clone()).next() {
-                    Some(Ok(v)) => v,
-                    Some(Err(e)) => return Err(e),
-                    None => return Err("index evaluation produced no value".to_string()),
-                };
+                let idx_results: Vec<_> = idx_interp.eval_expr(index, current.clone(), ctx.clone()).collect();
+
+                if idx_results.is_empty() {
+                    return Err("index evaluation produced no value".to_string());
+                }
 
                 match &base.kind {
                     ExprKind::Identity => {
                         // Direct index on input: .[idx] = value
-                        match &idx_val {
-                            Jv::String(s) => {
-                                match current {
-                                    Jv::Object(mut obj) => {
-                                        obj.set(s.as_str(), value);
-                                        Ok(Jv::Object(obj))
-                                    }
-                                    Jv::Null => {
-                                        let mut obj = JvObject::new();
-                                        obj.set(s.as_str(), value);
-                                        Ok(Jv::Object(obj))
-                                    }
-                                    _ => Err(format!("Cannot index {} with string", current.type_name())),
-                                }
-                            }
-                            Jv::Number(n) => {
-                                // NaN index in assignment is an error
-                                if n.is_nan() {
-                                    return Err("Cannot set array element at NaN index".to_string());
-                                }
-                                // jq truncates float indices using floor
-                                let idx = if let Some(i) = n.as_i64() {
-                                    i
-                                } else {
-                                    n.as_f64().floor() as i64
-                                };
-                                match current {
-                                    Jv::Array(mut arr) => {
-                                        let len = arr.len() as i64;
-                                        let actual_idx = if idx < 0 { len + idx } else { idx };
-                                        if actual_idx < 0 {
-                                            return Err("Out of bounds negative array index".to_string());
+                        // If multiple indices (comma expression), apply assignment to each
+                        let mut result = current.clone();
+                        for idx_result in idx_results {
+                            let idx_val = match idx_result {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+
+                            match &idx_val {
+                                Jv::String(s) => {
+                                    match result {
+                                        Jv::Object(mut obj) => {
+                                            obj.set(s.as_str(), value.clone());
+                                            result = Jv::Object(obj);
                                         }
-                                        arr.set(actual_idx, value)?;
-                                        Ok(Jv::Array(arr))
-                                    }
-                                    Jv::Null => {
-                                        if idx < 0 {
-                                            return Err("Out of bounds negative array index".to_string());
+                                        Jv::Null => {
+                                            let mut obj = JvObject::new();
+                                            obj.set(s.as_str(), value.clone());
+                                            result = Jv::Object(obj);
                                         }
-                                        let mut arr = JvArray::new();
-                                        arr.set(idx, value)?;
-                                        Ok(Jv::Array(arr))
+                                        _ => return Err(format!("Cannot index {} with string", result.type_name())),
                                     }
-                                    _ => Err(format!("Cannot index {} with number", current.type_name())),
                                 }
+                                Jv::Number(n) => {
+                                    // NaN index in assignment is an error
+                                    if n.is_nan() {
+                                        return Err("Cannot set array element at NaN index".to_string());
+                                    }
+                                    // jq truncates float indices using floor
+                                    let idx = if let Some(i) = n.as_i64() {
+                                        i
+                                    } else {
+                                        n.as_f64().floor() as i64
+                                    };
+                                    match result {
+                                        Jv::Array(mut arr) => {
+                                            let len = arr.len() as i64;
+                                            let actual_idx = if idx < 0 { len + idx } else { idx };
+                                            if actual_idx < 0 {
+                                                return Err("Out of bounds negative array index".to_string());
+                                            }
+                                            arr.set(actual_idx, value.clone())?;
+                                            result = Jv::Array(arr);
+                                        }
+                                        Jv::Null => {
+                                            if idx < 0 {
+                                                return Err("Out of bounds negative array index".to_string());
+                                            }
+                                            let mut arr = JvArray::new();
+                                            arr.set(idx, value.clone())?;
+                                            result = Jv::Array(arr);
+                                        }
+                                        _ => return Err(format!("Cannot index {} with number", result.type_name())),
+                                    }
+                                }
+                                _ => return Err(format!("Cannot use {} as index", idx_val.type_name())),
                             }
-                            _ => Err(format!("Cannot use {} as index", idx_val.type_name())),
                         }
+                        Ok(result)
                     }
                     _ => {
                         // Nested: get base value, apply assignment, set back
-                        let mut base_interp = Interpreter { ctx: ctx.clone() };
-                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
-                            Some(Ok(v)) => v,
-                            Some(Err(e)) => return Err(e),
-                            None => Jv::Null,
-                        };
+                        // For comma expressions, apply all assignments sequentially
+                        let mut result = current.clone();
+                        for idx_result in idx_results {
+                            let idx_val = match idx_result {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
 
-                        // Apply inner assignment
-                        let inner_target = Expr::new(
-                            ExprKind::Index {
-                                expr: Box::new(Expr::new(ExprKind::Identity, target.span)),
-                                index: index.clone(),
-                                optional: false,
-                            },
-                            target.span,
-                        );
-                        let modified_base = Self::apply_assignment(base_val, &inner_target, value, _path, ctx.clone())?;
+                            let mut base_interp = Interpreter { ctx: ctx.clone() };
+                            let base_val = match base_interp.eval_expr(base, result.clone(), ctx.clone()).next() {
+                                Some(Ok(v)) => v,
+                                Some(Err(e)) => return Err(e),
+                                None => Jv::Null,
+                            };
 
-                        // Now set modified base back to parent
-                        Self::apply_assignment(current, base, modified_base, _path, ctx)
+                            // Create a literal index expression for this specific index
+                            let idx_literal = match &idx_val {
+                                Jv::Number(n) => Expr::new(ExprKind::Literal(Literal::Number(n.as_f64())), target.span),
+                                Jv::String(s) => Expr::new(ExprKind::Literal(Literal::String(s.as_str().to_string())), target.span),
+                                _ => return Err(format!("Cannot use {} as index", idx_val.type_name())),
+                            };
+
+                            // Apply inner assignment
+                            let inner_target = Expr::new(
+                                ExprKind::Index {
+                                    expr: Box::new(Expr::new(ExprKind::Identity, target.span)),
+                                    index: Box::new(idx_literal),
+                                    optional: false,
+                                },
+                                target.span,
+                            );
+                            let modified_base = Self::apply_assignment(base_val, &inner_target, value.clone(), _path, ctx.clone())?;
+
+                            // Now set modified base back to parent
+                            result = Self::apply_assignment(result, base, modified_base, _path, ctx.clone())?;
+                        }
+                        Ok(result)
                     }
                 }
             }
@@ -4231,7 +4258,34 @@ impl Interpreter {
                 result = set_path(result, &components, value)?;
                 Ok(result)
             }
-            ExprKind::FunctionCall { name, .. } => {
+            ExprKind::FunctionCall { name, args } => {
+                // Check if this is a call to a 0-arity function that's actually an expression binding
+                // This handles cases like: def x: .[0]; x = 10
+                // or filter parameters like: def inc(x): x |= .+1; inc(.foo)
+                if args.is_empty() {
+                    // Look up the function - it might be a 0-arity user-defined function
+                    // that's really just an expression binding (filter parameter)
+                    let func_key = format!("{}/0", name);
+                    // Clone the binding data to avoid borrow issues during recursion
+                    let func_binding = {
+                        let borrowed = ctx.borrow();
+                        borrowed.lookup(&func_key)
+                    };
+                    if let Some(Binding::FilterClosure { def, ctx: closure_ctx }) = func_binding {
+                        // This is a user-defined function - evaluate its body as the target
+                        // The body expression becomes the path we're assigning to
+                        return Self::apply_assignment(current, &def.body, value, _path, closure_ctx);
+                    }
+                    // Also check for direct expression bindings (filter parameters)
+                    let expr_binding = {
+                        let borrowed = ctx.borrow();
+                        borrowed.lookup_expr_with_context(name)
+                    };
+                    if let Some((expr, expr_ctx)) = expr_binding {
+                        return Self::apply_assignment(current, &expr, value, _path, expr_ctx);
+                    }
+                }
+
                 // For any other function call, evaluate it and produce an error with the result
                 // This handles both built-in functions like reverse, sort, etc.
                 // and user-defined functions that don't produce valid paths
