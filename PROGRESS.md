@@ -368,6 +368,8 @@
   - jq sends uncaught errors to stderr, not stdout
   - Only caught errors (via try-catch) become output values
 - [x] Cleaned up compiler warnings
+- [x] Implemented `path(..)` for recursive descent
+  - `path(..)` now returns all paths in the input value
 
 ## Known Limitations
 
