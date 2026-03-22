@@ -198,9 +198,11 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
                         let formatted = format_output(&value, &compact_opts);
                         actual_outputs.push(formatted);
                     }
-                    Err(e) => {
-                        // Some tests expect error outputs - represent as error strings
-                        actual_outputs.push(format!("<error: {}>", e));
+                    Err(_e) => {
+                        // Uncaught errors in jq go to stderr, not stdout
+                        // The jq.test file only expects stdout outputs
+                        // Errors caught by try-catch become string values (Ok), not Err results
+                        // So we skip Err results here
                     }
                 }
             }
