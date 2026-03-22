@@ -919,9 +919,48 @@ impl<'a> Parser<'a> {
             }
             TokenKind::StringStart => {
                 let s = self.parse_string()?;
-                if let ExprKind::Literal(Literal::String(s)) = s.kind {
-                    ObjectKey::String(s)
+                if let ExprKind::Literal(Literal::String(ref key_str)) = s.kind {
+                    // Check if this is shorthand (no colon follows)
+                    if !self.check(&TokenKind::Colon) {
+                        // Shorthand: {"foo"} means {"foo": .foo}
+                        let name = key_str.clone();
+                        let value = Box::new(Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, start)),
+                                index: Box::new(Expr::new(
+                                    ExprKind::Literal(Literal::String(name.clone())),
+                                    start,
+                                )),
+                                optional: false,
+                            },
+                            start,
+                        ));
+                        return Ok(ObjectEntry {
+                            key: ObjectKey::String(name),
+                            value,
+                            span: start,
+                        });
+                    }
+                    ObjectKey::String(key_str.clone())
                 } else {
+                    // Interpolated string - check if shorthand
+                    if !self.check(&TokenKind::Colon) {
+                        // Shorthand: {"foo\(bar)"} means {("foo\(bar)"): .["foo\(bar)"]}
+                        let key_expr = s.clone();
+                        let value = Box::new(Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, start)),
+                                index: Box::new(s),
+                                optional: false,
+                            },
+                            start,
+                        ));
+                        return Ok(ObjectEntry {
+                            key: ObjectKey::Expr(Box::new(key_expr)),
+                            value,
+                            span: start,
+                        });
+                    }
                     ObjectKey::Expr(Box::new(s))
                 }
             }

@@ -509,7 +509,7 @@ fn builtin_builtins(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Ite
         "empty", "null", "true", "false", "not", "type", "length", "keys", "values",
         "add", "reverse", "sort", "unique", "flatten", "first", "last", "nth",
         "floor", "ceil", "round", "sqrt", "abs", "min", "max",
-        "map", "select", "recurse", "range", "limit", "group_by", "sort_by", "unique_by",
+        "map", "select", "recurse", "range", "limit", "skip", "group_by", "sort_by", "unique_by",
         "tostring", "tonumber", "split", "join", "test", "match", "sub", "gsub",
         "has", "in", "contains", "inside", "getpath", "setpath", "delpaths", "del",
         "to_entries", "from_entries", "keys_unsorted", "error", "debug",

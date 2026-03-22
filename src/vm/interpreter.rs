@@ -702,6 +702,7 @@ impl Interpreter {
             ("range", 1) => return self.eval_range1(&args[0], input, ctx),
             ("range", 2) => return self.eval_range2(&args[0], &args[1], input, ctx),
             ("limit", 2) => return self.eval_limit(&args[0], &args[1], input, ctx),
+            ("skip", 2) => return self.eval_skip(&args[0], &args[1], input, ctx),
             ("first", 1) => return self.eval_first_expr(&args[0], input, ctx),
             ("group_by", 1) => return self.eval_group_by(&args[0], input, ctx),
             ("sort_by", 1) => return self.eval_sort_by(&args[0], input, ctx),
@@ -941,12 +942,32 @@ impl Interpreter {
 
         let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
         let n = match n_inner.eval_expr(n_expr, input.clone(), ctx_clone.clone()).next() {
-            Some(Ok(Jv::Number(num))) => num.as_i64().unwrap_or(0) as usize,
+            Some(Ok(Jv::Number(num))) => {
+                match num.as_i64() {
+                    Some(i) if i < 0 => return Box::new(std::iter::once(Err("limit doesn't support negative count".to_string()))),
+                    Some(i) => i as usize,
+                    None => return Box::new(std::iter::once(Err("limit requires integer".to_string()))),
+                }
+            }
             _ => return Box::new(std::iter::once(Err("limit requires number".to_string()))),
         };
 
         let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
         let results: Vec<_> = iter_inner.eval_expr(iter_expr, input, ctx_clone).take(n).collect();
+        Box::new(results.into_iter())
+    }
+
+    fn eval_skip(&mut self, n_expr: &Expr, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        let ctx_clone = ctx.clone();
+
+        let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
+        let n = match n_inner.eval_expr(n_expr, input.clone(), ctx_clone.clone()).next() {
+            Some(Ok(Jv::Number(num))) => num.as_i64().unwrap_or(0) as usize,
+            _ => return Box::new(std::iter::once(Err("skip requires number".to_string()))),
+        };
+
+        let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
+        let results: Vec<_> = iter_inner.eval_expr(iter_expr, input, ctx_clone).skip(n).collect();
         Box::new(results.into_iter())
     }
 
