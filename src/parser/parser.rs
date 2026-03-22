@@ -1067,13 +1067,12 @@ impl<'a> Parser<'a> {
                 ObjectKey::Expr(Box::new(expr))
             }
             TokenKind::Binding(name) => {
-                // $var means {($var): $var}
+                // $var means {var: $var} - key is the variable NAME as string
                 let name = name.clone();
                 self.advance();
-                let key_expr = Expr::new(ExprKind::Variable(name.clone()), start);
-                let value = Box::new(Expr::new(ExprKind::Variable(name), start));
+                let value = Box::new(Expr::new(ExprKind::Variable(name.clone()), start));
                 return Ok(ObjectEntry {
-                    key: ObjectKey::Expr(Box::new(key_expr)),
+                    key: ObjectKey::Shorthand(name),
                     value,
                     span: start,
                 });

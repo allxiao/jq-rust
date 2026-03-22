@@ -287,7 +287,13 @@
 - [x] Added getpath() support as assignment target
   - `getpath(["a",0,"b"]) |= 5` now works as expected
   - Creates nested structure if path doesn't exist
-- [x] Integration tests: 433/527 jq.test cases passing (82%)
+- [x] Fixed tonumber to reject strings with leading/trailing whitespace
+- [x] Fixed `{$var}` object shorthand to use variable name as key
+- [x] Added `fromjson` support for "nan" literal
+- [x] Added `input` and `inputs` stub functions (return "break" error)
+- [x] Fixed implode to handle invalid codepoints with replacement character
+- [x] Fixed indexing error messages to include string values
+- [x] Integration tests: 439/527 jq.test cases passing (83%)
 
 ## Phase Progress
 
@@ -341,7 +347,7 @@
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 433           | 527         | 82%      |
+| jq.test    | 439           | 527         | 83%      |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |

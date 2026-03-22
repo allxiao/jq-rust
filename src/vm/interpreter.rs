@@ -126,10 +126,15 @@ impl Interpreter {
                                             if optional_inner {
                                                 None
                                             } else {
+                                                let idx_desc = match &idx_val {
+                                                    Jv::String(s) => format!("string \"{}\"", s.as_str()),
+                                                    Jv::Number(n) => format!("number ({})", n),
+                                                    _ => idx_val.type_name().to_string(),
+                                                };
                                                 Some(Err(format!(
                                                     "Cannot index {} with {}",
                                                     base_val_for_index.type_name(),
-                                                    idx_val.type_name()
+                                                    idx_desc
                                                 )))
                                             }
                                         } else {
