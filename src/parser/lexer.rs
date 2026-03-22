@@ -519,7 +519,8 @@ impl<'a> Lexer<'a> {
         }
 
         // Check for exponent
-        if let Some(b'e') | Some(b'E') = self.peek() {
+        let has_exponent = matches!(self.peek(), Some(b'e') | Some(b'E'));
+        if has_exponent {
             self.advance();
             if let Some(b'+') | Some(b'-') = self.peek() {
                 self.advance();
@@ -530,6 +531,18 @@ impl<'a> Lexer<'a> {
         }
 
         let num_str = std::str::from_utf8(&self.input[start..self.pos]).unwrap_or("0");
+
+        // Check if this has an extreme exponent that would overflow/underflow f64
+        // f64 exponent range is roughly -308 to +308
+        if has_exponent {
+            if let Some(exp) = extract_exponent(num_str) {
+                if exp > 308 || exp < -308 {
+                    // Return as literal number - normalize to jq's format
+                    return TokenKind::LiteralNumber(normalize_literal_number(num_str));
+                }
+            }
+        }
+
         match num_str.parse::<f64>() {
             Ok(n) => {
                 // For extreme exponents that overflow to infinity or underflow to zero,
@@ -553,6 +566,104 @@ impl<'a> Lexer<'a> {
         }
         tokens
     }
+}
+
+/// Extract the exponent from a number string like "9E999999999" or "1.5e-10"
+fn extract_exponent(s: &str) -> Option<i64> {
+    let s = s.to_uppercase();
+    if let Some(idx) = s.find('E') {
+        s[idx+1..].parse::<i64>().ok()
+    } else {
+        None
+    }
+}
+
+/// Normalize a literal number to jq's canonical format.
+/// Input: "9999999999E999999990" or "0.000000001E-999999990"
+/// Output: "9.999999999E+999999999" or "1E-999999999"
+fn normalize_literal_number(s: &str) -> String {
+    let s = s.to_uppercase();
+    let negative = s.starts_with('-');
+    let s = s.trim_start_matches('-');
+
+    // Split mantissa and exponent
+    let (mantissa_str, exp_str) = if let Some(idx) = s.find('E') {
+        (&s[..idx], &s[idx+1..])
+    } else {
+        return s.to_string(); // No exponent, return as-is
+    };
+
+    let mut exponent: i64 = exp_str.parse().unwrap_or(0);
+
+    // Parse mantissa into digits and decimal position
+    // "9999999999" -> digits: [9,9,9,9,9,9,9,9,9,9], decimal_pos: 10 (after all digits)
+    // "0.000000001" -> digits: [1], decimal_pos: -8 (one place before the 1)
+    // "123.456" -> digits: [1,2,3,4,5,6], decimal_pos: 3 (after 3rd digit)
+
+    let mut digits: Vec<char> = Vec::new();
+    let mut decimal_pos: i64 = 0;
+    let mut found_decimal = false;
+
+    for c in mantissa_str.chars() {
+        if c == '.' {
+            found_decimal = true;
+            decimal_pos = digits.len() as i64;
+        } else if c.is_ascii_digit() {
+            if digits.is_empty() && c == '0' && !found_decimal {
+                // Leading zeros before decimal point - skip
+            } else if digits.is_empty() && c == '0' && found_decimal {
+                // Leading zeros after decimal point, adjust exponent
+                exponent -= 1;
+            } else {
+                digits.push(c);
+            }
+        }
+    }
+
+    // If no decimal point was found, it's at the end
+    if !found_decimal {
+        decimal_pos = digits.len() as i64;
+    }
+
+    // If no significant digits, return "0"
+    if digits.is_empty() {
+        return "0".to_string();
+    }
+
+    // Trim trailing zeros from digits
+    while digits.len() > 1 && digits.last() == Some(&'0') {
+        digits.pop();
+    }
+
+    // Normalize: move decimal point to after first digit
+    // Current: digits with decimal at decimal_pos
+    // Target: d.ddddd with decimal at position 1
+    // Adjustment to exponent: decimal_pos - 1 (if decimal was at pos 3, we shift by 2)
+    let shift = decimal_pos - 1;
+    exponent += shift;
+
+    // Build normalized mantissa: first digit, then decimal (if more digits), then rest
+    let mut result = String::new();
+    if negative {
+        result.push('-');
+    }
+
+    result.push(digits[0]);
+    if digits.len() > 1 {
+        result.push('.');
+        for &d in &digits[1..] {
+            result.push(d);
+        }
+    }
+
+    // Add exponent with explicit sign
+    result.push('E');
+    if exponent >= 0 {
+        result.push('+');
+    }
+    result.push_str(&exponent.to_string());
+
+    result
 }
 
 /// Check if a byte can start an identifier

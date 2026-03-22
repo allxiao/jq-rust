@@ -758,6 +758,7 @@ fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 
 fn builtin_have_decnum(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // We don't have full arbitrary precision decimal support
+    // Only extreme exponents are preserved as LiteralNumber
     ok(Jv::Bool(false))
 }
 
@@ -2931,7 +2932,35 @@ fn builtin_utf8bytelength(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dy
 
 fn builtin_tojson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     use crate::jv::print_jv;
-    ok(Jv::string(print_jv(&input)))
+    // For LiteralNumber, since have_decnum=false, convert to f64 (clamped to max)
+    // This makes tojson output consistent with jq without decnum support
+    match &input {
+        Jv::LiteralNumber(s) => {
+            // Parse the exponent to determine if overflow or underflow
+            let s_upper = s.to_uppercase();
+            let negative = s_upper.starts_with('-');
+            let s_clean = s_upper.trim_start_matches('-');
+            if let Some(e_pos) = s_clean.find('E') {
+                if let Ok(exp) = s_clean[e_pos+1..].parse::<i64>() {
+                    if exp > 308 {
+                        // Overflow to max f64
+                        let max_str = if negative {
+                            "-1.7976931348623157e+308"
+                        } else {
+                            "1.7976931348623157e+308"
+                        };
+                        return ok(Jv::string(max_str));
+                    } else if exp < -308 {
+                        // Underflow to zero - but zero has no sign
+                        return ok(Jv::string("0"));
+                    }
+                }
+            }
+            // For other cases, use the literal representation
+            ok(Jv::string(print_jv(&input)))
+        }
+        _ => ok(Jv::string(print_jv(&input)))
+    }
 }
 
 fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {

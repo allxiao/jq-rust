@@ -8,7 +8,7 @@ use jq_rust::set_module_search_path;
 use std::path::PathBuf;
 
 /// Minimum number of tests that must pass (updated as we fix more)
-const BASELINE_PASS_COUNT: usize = 336;
+const BASELINE_PASS_COUNT: usize = 520;
 
 /// Stack size for the test thread (16 MB to handle deeply nested structures)
 const TEST_STACK_SIZE: usize = 16 * 1024 * 1024;
