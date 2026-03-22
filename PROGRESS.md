@@ -190,7 +190,11 @@
 - [x] Fixed error/catch to preserve JSON values through error propagation
   - `try (["b"] | error) catch .` now returns `["b"]` instead of `"[\"b\"]"`
 - [x] Fixed @html to use `&apos;` instead of `&#39;` for single quote
-- [x] Integration tests: 337/527 jq.test cases passing (64%)
+- [x] Fixed modulo operator to use jq's integer modulo semantics
+  - Converts operands to i64 before computing (like jq's dtoi macro)
+  - Correctly handles infinity: `infinite % 1` returns 0
+  - Returns NaN when either operand is NaN
+- [x] Integration tests: 338/527 jq.test cases passing (64%)
 
 ## Phase Progress
 

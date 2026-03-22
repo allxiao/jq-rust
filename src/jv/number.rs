@@ -129,8 +129,35 @@ impl JvNumber {
     }
 
     pub fn modulo(&self, other: &JvNumber) -> JvNumber {
-        // jq uses fmod semantics
-        JvNumber::from_f64(self.value % other.value)
+        // jq returns NaN if either operand is NaN
+        if self.value.is_nan() || other.value.is_nan() {
+            return JvNumber::from_f64(f64::NAN);
+        }
+
+        // jq uses integer modulo semantics - converts both operands to intmax_t first
+        // This matches jq's dtoi macro behavior:
+        // #define dtoi(n) ((n) < INTMAX_MIN ? INTMAX_MIN : -(n) <= INTMAX_MIN ? INTMAX_MAX : (intmax_t)(n))
+        fn dtoi(n: f64) -> i64 {
+            if n < i64::MIN as f64 {
+                return i64::MIN;
+            }
+            if (-n) <= i64::MIN as f64 {
+                return i64::MAX;
+            }
+            n as i64
+        }
+
+        let a = dtoi(self.value);
+        let b = dtoi(other.value);
+
+        if b == 0 {
+            return JvNumber::from_f64(f64::NAN);
+        }
+        if b == -1 {
+            // Avoid overflow when a is i64::MIN
+            return JvNumber::from_i64(0);
+        }
+        JvNumber::from_i64(a % b)
     }
 
     pub fn neg(&self) -> JvNumber {
