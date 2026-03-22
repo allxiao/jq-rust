@@ -292,13 +292,14 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        // Handle +=, -=, etc.
+        // Handle +=, -=, //=, etc.
         let update_op = match &self.current.kind {
             TokenKind::PlusEq => Some(BinaryOp::Add),
             TokenKind::MinusEq => Some(BinaryOp::Sub),
             TokenKind::StarEq => Some(BinaryOp::Mul),
             TokenKind::SlashEq => Some(BinaryOp::Div),
             TokenKind::PercentEq => Some(BinaryOp::Mod),
+            TokenKind::DoubleSlashEq => Some(BinaryOp::Alternative),
             _ => None,
         };
 

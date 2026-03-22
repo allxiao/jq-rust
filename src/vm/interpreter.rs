@@ -3981,6 +3981,8 @@ fn eval_binary_op(op: BinaryOp, left: &Jv, right: &Jv) -> Result<Jv, String> {
         BinaryOp::Ge => Ok(Jv::Bool(left >= right)),
         BinaryOp::And => Ok(Jv::Bool(left.is_truthy() && right.is_truthy())),
         BinaryOp::Or => Ok(Jv::Bool(left.is_truthy() || right.is_truthy())),
+        // Alternative: return left if truthy, otherwise right
+        BinaryOp::Alternative => Ok(if left.is_truthy() { left.clone() } else { right.clone() }),
     }
 }
 

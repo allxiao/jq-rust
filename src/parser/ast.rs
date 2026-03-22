@@ -264,12 +264,16 @@ pub enum BinaryOp {
     // Logical
     And,      // and
     Or,       // or
+
+    // Alternative (for //= update operator)
+    Alternative,  // //
 }
 
 impl BinaryOp {
     /// Get precedence (higher = binds tighter)
     pub fn precedence(&self) -> u8 {
         match self {
+            BinaryOp::Alternative => 0,  // Lowest precedence
             BinaryOp::Or => 1,
             BinaryOp::And => 2,
             BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 3,
