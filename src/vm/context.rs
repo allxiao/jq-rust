@@ -619,7 +619,17 @@ fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
     match &input {
         Jv::Number(_) => ok(input),
         Jv::String(s) => {
-            match s.as_str().parse::<f64>() {
+            let str_val = s.as_str();
+            // Check for null byte - jq versions before 1.7 error on this
+            if str_val.contains('\0') {
+                // Format the string with \u0000 style escaping to match jq
+                let escaped: String = str_val.chars().map(|c| {
+                    if c == '\0' { "\\u0000".to_string() }
+                    else { c.to_string() }
+                }).collect();
+                return err(format!("string (\"{}\") cannot be parsed as a number", escaped));
+            }
+            match str_val.trim().parse::<f64>() {
                 Ok(n) => ok(Jv::from_f64(n)),
                 Err(_) => err(format!("cannot parse '{}' as number", s.as_str())),
             }
@@ -696,7 +706,13 @@ fn builtin_endswith(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
 fn builtin_split(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::String(s), Some(Jv::String(sep))) => {
-            let parts: Vec<Jv> = s.split(sep.as_str()).into_iter().map(|p| Jv::String(p)).collect();
+            let sep_str = sep.as_str();
+            let parts: Vec<Jv> = if sep_str.is_empty() {
+                // jq's split("") splits into individual characters without empty strings at edges
+                s.as_str().chars().map(|c| Jv::string(c.to_string())).collect()
+            } else {
+                s.split(sep_str).into_iter().map(|p| Jv::String(p)).collect()
+            };
             ok(Jv::from_vec(parts))
         }
         _ => err("split requires string arguments".to_string()),
@@ -1650,7 +1666,11 @@ fn builtin_utf8bytelength(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dy
         Jv::String(s) => {
             ok(Jv::from_i64(s.as_str().len() as i64))
         }
-        _ => err("utf8bytelength requires string input".to_string()),
+        _ => {
+            // Format error message to match jq's format
+            use crate::jv::print_jv;
+            err(format!("{} ({}) only strings have UTF-8 byte length", input.type_name(), print_jv(&input)))
+        }
     }
 }
 
