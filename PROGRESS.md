@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~75%
+**Overall Progress**: ~78%
 
 ## Session Log
 
@@ -227,6 +227,26 @@
 - [x] Added `."string"` field access syntax support in parser
 - [x] Integration tests: 352/527 jq.test cases passing (67%)
 
+### Session 14 (2026-03-21)
+- [x] Fixed string index/rindex/indices to use character positions (not byte positions)
+- [x] Fixed string multiplication to use floor() for float truncation
+- [x] Fixed conditional without else to return identity (not null) when condition false
+- [x] Fixed sort_by/group_by/min_by/max_by to handle multiple keys as tuples
+- [x] Fixed from_entries to support Key/Value and Name variants
+- [x] Fixed Index and Slice expressions to evaluate indices with original input
+- [x] Fixed values type selector to filter out null (was iterating container values)
+- [x] Fixed min/max to return null on empty array (was error)
+- [x] Fixed has() to return false for nan index (was error)
+- [x] Fixed flatten to support unlimited depth when no argument given
+- [x] Fixed ascii_downcase/ascii_upcase to only convert ASCII characters
+- [x] Fixed max_by to return last element when keys are equal
+- [x] Added trim/ltrim/rtrim functions with Unicode whitespace support
+- [x] Added trimstr function for trimming from both ends
+- [x] Added transpose function for matrix transposition
+- [x] Added date/time functions: gmtime, mktime, strftime, strptime
+- [x] Added chrono crate dependency for date handling
+- [x] Integration tests: 388/527 jq.test cases passing (74%)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -248,13 +268,13 @@
 - [x] 4.2 Stack operations
 - [x] 4.3 Control flow
 
-### Phase 5: Built-in Functions (85%)
+### Phase 5: Built-in Functions (90%)
 - [x] 5.1 Core built-ins
 - [x] 5.2 Math functions (complete)
 - [x] 5.3 String functions
 - [x] 5.4 Array functions
 - [x] 5.5 Object functions
-- [ ] 5.6 Date/Time functions
+- [x] 5.6 Date/Time functions (gmtime, mktime, strftime, strptime)
 - [x] 5.7 Format functions (@base64, @uri, @html, @csv, @tsv, @sh)
 - [x] 5.8 Regex functions (test, match, capture, scan, sub, gsub, splits)
 - [x] 5.9 Control flow functions (until, while, repeat)
