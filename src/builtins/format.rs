@@ -185,7 +185,8 @@ mod tests {
 
     #[test]
     fn test_csv() {
-        assert_eq!(csv_field(&Jv::string("hello")), "hello");
+        // jq always quotes strings in CSV output
+        assert_eq!(csv_field(&Jv::string("hello")), "\"hello\"");
         assert_eq!(csv_field(&Jv::string("hello,world")), "\"hello,world\"");
         assert_eq!(csv_field(&Jv::string("say \"hi\"")), "\"say \"\"hi\"\"\"");
     }
