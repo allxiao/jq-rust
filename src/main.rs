@@ -1,4 +1,4 @@
-//! jq-rust: A Rust implementation of jq
+//! jqr: A Rust implementation of jq
 //!
 //! jq is a lightweight and flexible command-line JSON processor.
 
@@ -6,12 +6,12 @@ use std::io::{self, BufRead, Write};
 use std::process;
 
 use clap::Parser;
-use jq_rust::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
-use jq_rust::{parse, interpret, Jv};
+use jqr::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
+use jqr::{parse, interpret, Jv};
 
-/// jq - commandline JSON processor
+/// jqr - commandline JSON processor (Rust implementation of jq)
 #[derive(Parser, Debug)]
-#[command(name = "jq")]
+#[command(name = "jqr")]
 #[command(version = "0.1.0")]
 #[command(about = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor")]
 struct Args {
@@ -116,7 +116,7 @@ fn main() {
 }
 
 fn run_filter(
-    expr: &jq_rust::Expr,
+    expr: &jqr::Expr,
     input: Jv,
     print_options: &JvPrintOptions,
     args: &Args,
@@ -160,7 +160,7 @@ fn run_filter(
 fn process_input(
     args: &Args,
     print_options: &JvPrintOptions,
-    expr: &jq_rust::Expr,
+    expr: &jqr::Expr,
     exit_code: &mut i32,
 ) -> Result<(), String> {
     let stdin = io::stdin();

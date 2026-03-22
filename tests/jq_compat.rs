@@ -3,8 +3,8 @@
 //! Runs the official jq test suite and asserts a minimum pass count
 //! to prevent regressions.
 
-use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
-use jq_rust::set_module_search_path;
+use jqr::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
+use jqr::set_module_search_path;
 use std::path::PathBuf;
 
 /// Minimum number of tests that must pass (updated as we fix more)

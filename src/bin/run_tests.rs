@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use std::process;
 
-use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
+use jqr::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -72,7 +72,7 @@ fn main() {
     if let Some(parent) = test_path.parent() {
         let modules_dir = parent.join("modules");
         if modules_dir.exists() {
-            jq_rust::set_module_search_path(Some(modules_dir));
+            jqr::set_module_search_path(Some(modules_dir));
         }
     }
 

@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")/.."
 cargo build --release 2>/dev/null
 
-JQ_RUST="./target/release/jq"
+JQR="./target/release/jqr"
 JQ_C="jq"
 
 echo "Detailed Reduce & Object Transform Benchmarks"
@@ -24,7 +24,7 @@ benchmark() {
 
     local start_rust=$(date +%s%N)
     for i in $(seq 1 $iterations); do
-        echo "$input" | $JQ_RUST "$filter" > /dev/null 2>&1
+        echo "$input" | $JQR "$filter" > /dev/null 2>&1
     done
     local end_rust=$(date +%s%N)
     local time_rust=$(( (end_rust - start_rust) / 1000000 ))

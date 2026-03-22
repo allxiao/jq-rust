@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use jq_rust::{parse, interpret, Jv};
-use jq_rust::jv::parse_json;
+use jqr::{parse, interpret, Jv};
+use jqr::jv::parse_json;
 
 fn parse_and_run(filter: &str, input: &str) -> Vec<Result<Jv, String>> {
     let ast = parse(filter).unwrap();
