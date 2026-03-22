@@ -491,17 +491,26 @@ fn builtin_nth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<I
     }
 }
 
+/// Marker prefix for errors that carry a JSON value instead of a simple string
+pub const JSON_ERROR_PREFIX: &str = "__JSON_ERROR__:";
+
 fn builtin_error(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_str() {
         Some(s) => err(s.to_string()),
-        None => err(format!("{}", input)),
+        None => err(format!("{}{}", JSON_ERROR_PREFIX, input)),
     }
 }
 
 fn builtin_error_msg(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match args.first().and_then(|v| v.as_str()) {
         Some(s) => err(s.to_string()),
-        None => err(args.first().map(|v| format!("{}", v)).unwrap_or_default()),
+        None => {
+            if let Some(v) = args.first() {
+                err(format!("{}{}", JSON_ERROR_PREFIX, v))
+            } else {
+                err(String::new())
+            }
+        }
     }
 }
 

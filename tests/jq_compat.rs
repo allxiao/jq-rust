@@ -6,7 +6,7 @@
 use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 
 /// Minimum number of tests that must pass (updated as we fix more)
-const BASELINE_PASS_COUNT: usize = 331;
+const BASELINE_PASS_COUNT: usize = 334;
 
 #[test]
 fn jq_test_suite_baseline() {

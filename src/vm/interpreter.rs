@@ -238,8 +238,9 @@ impl Interpreter {
                                 Jv::Null if optional => Box::new(std::iter::empty()) as EvalResult,
                                 _ if optional => Box::new(std::iter::empty()) as EvalResult,
                                 _ => Box::new(std::iter::once(Err(format!(
-                                    "Cannot iterate over {}",
-                                    base_val.type_name()
+                                    "Cannot iterate over {} ({})",
+                                    base_val.type_name(),
+                                    base_val
                                 )))) as EvalResult,
                             }
                         }
@@ -323,10 +324,22 @@ impl Interpreter {
                     match result {
                         Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
                         Err(e) => {
+                            // Check if this is a break signal - don't catch those
+                            if e.starts_with(BREAK_PREFIX) {
+                                return Box::new(std::iter::once(Err(e))) as EvalResult;
+                            }
+
                             if let Some(ref catch_e) = catch_expr {
-                                // Set up error as input to catch
+                                // Convert error string to Jv input for catch
+                                // If error was a JSON value, parse it back
+                                let err_input = if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
+                                    let json_str = &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
+                                    crate::jv::parse_json(json_str).unwrap_or_else(|_| Jv::string(&e))
+                                } else {
+                                    Jv::string(&e)
+                                };
                                 let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                inner.eval_expr(catch_e, Jv::string(&e), ctx_clone.clone())
+                                inner.eval_expr(catch_e, err_input, ctx_clone.clone())
                             } else {
                                 // No catch - suppress error
                                 Box::new(std::iter::empty())
@@ -1081,7 +1094,7 @@ impl Interpreter {
                 Box::new(std::iter::once(Ok(Jv::from_vec(results))))
             }
             Jv::Null => Box::new(std::iter::once(Ok(Jv::Null))),
-            _ => Box::new(std::iter::once(Err(format!("Cannot iterate over {}", input.type_name())))),
+            _ => Box::new(std::iter::once(Err(format!("Cannot iterate over {} ({})", input.type_name(), input)))),
         }
     }
 
