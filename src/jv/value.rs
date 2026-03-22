@@ -22,6 +22,9 @@ pub enum Jv {
     Bool(bool),
     /// JSON number (stored as f64, with special handling for integers)
     Number(JvNumber),
+    /// Literal number with extreme exponent (stored as normalized string)
+    /// Used for numbers like 9E999999999 that can't be represented as f64
+    LiteralNumber(String),
     /// JSON string
     String(JvString),
     /// JSON array
@@ -58,6 +61,12 @@ impl Jv {
     #[inline]
     pub fn from_f64(n: f64) -> Self {
         Jv::Number(JvNumber::from_f64(n))
+    }
+
+    /// Create a literal number (for extreme exponents that can't be represented as f64)
+    #[inline]
+    pub fn literal_number<S: Into<String>>(s: S) -> Self {
+        Jv::LiteralNumber(s.into())
     }
 
     /// Create a string value
@@ -104,6 +113,7 @@ impl Jv {
             Jv::Null => "null",
             Jv::Bool(_) => "boolean",
             Jv::Number(_) => "number",
+            Jv::LiteralNumber(_) => "number", // LiteralNumber is still a number type
             Jv::String(_) => "string",
             Jv::Array(_) => "array",
             Jv::Object(_) => "object",
@@ -123,7 +133,7 @@ impl Jv {
 
     #[inline]
     pub fn is_number(&self) -> bool {
-        matches!(self, Jv::Number(_))
+        matches!(self, Jv::Number(_) | Jv::LiteralNumber(_))
     }
 
     #[inline]
@@ -392,6 +402,7 @@ impl Ord for Jv {
                 Jv::Bool(false) => 1,
                 Jv::Bool(true) => 2,
                 Jv::Number(_) => 3,
+                Jv::LiteralNumber(_) => 3, // Same order as Number
                 Jv::String(_) => 4,
                 Jv::Array(_) => 5,
                 Jv::Object(_) => 6,
@@ -408,12 +419,98 @@ impl Ord for Jv {
             (Jv::Null, Jv::Null) => Ordering::Equal,
             (Jv::Bool(a), Jv::Bool(b)) => a.cmp(b),
             (Jv::Number(a), Jv::Number(b)) => a.cmp(b),
+            (Jv::LiteralNumber(a), Jv::LiteralNumber(b)) => compare_literal_numbers(a, b),
+            (Jv::Number(n), Jv::LiteralNumber(s)) => compare_number_to_literal(*n, s),
+            (Jv::LiteralNumber(s), Jv::Number(n)) => compare_number_to_literal(*n, s).reverse(),
             (Jv::String(a), Jv::String(b)) => a.cmp(b),
             (Jv::Array(a), Jv::Array(b)) => a.cmp(b),
             (Jv::Object(a), Jv::Object(b)) => a.cmp(b),
             _ => Ordering::Equal,
         }
     }
+}
+
+/// Compare two literal number strings numerically.
+/// Format: {-}mantissaE{+/-}exponent
+fn compare_literal_numbers(a: &str, b: &str) -> Ordering {
+    // Parse sign, mantissa, and exponent
+    fn parse_lit(s: &str) -> (bool, f64, i64) {
+        let s = s.to_uppercase();
+        let negative = s.starts_with('-');
+        let s = s.trim_start_matches('-');
+        let parts: Vec<&str> = s.split('E').collect();
+        if parts.len() != 2 {
+            return (negative, 0.0, 0);
+        }
+        let mantissa: f64 = parts[0].parse().unwrap_or(0.0);
+        let exp: i64 = parts[1].parse().unwrap_or(0);
+        (negative, mantissa, exp)
+    }
+
+    let (neg_a, mant_a, exp_a) = parse_lit(a);
+    let (neg_b, mant_b, exp_b) = parse_lit(b);
+
+    // Different signs: negative < positive
+    if neg_a != neg_b {
+        return if neg_a { Ordering::Less } else { Ordering::Greater };
+    }
+
+    // Same sign - compare by exponent first (for extreme differences)
+    // For positive numbers: larger exponent = larger number
+    // For negative numbers: larger exponent = more negative = smaller number
+    let exp_cmp = if neg_a {
+        exp_b.cmp(&exp_a) // Reversed for negative
+    } else {
+        exp_a.cmp(&exp_b)
+    };
+
+    if exp_cmp != Ordering::Equal {
+        return exp_cmp;
+    }
+
+    // Same exponent - compare mantissas
+    if neg_a {
+        mant_b.partial_cmp(&mant_a).unwrap_or(Ordering::Equal)
+    } else {
+        mant_a.partial_cmp(&mant_b).unwrap_or(Ordering::Equal)
+    }
+}
+
+/// Compare a regular number to a literal number
+fn compare_number_to_literal(n: JvNumber, s: &str) -> Ordering {
+    // If the literal is infinity-large positive, regular number is less
+    // If the literal is infinity-small positive, we need to check
+    let s_upper = s.to_uppercase();
+    let negative = s_upper.starts_with('-');
+    let s_clean = s_upper.trim_start_matches('-');
+    let parts: Vec<&str> = s_clean.split('E').collect();
+
+    if parts.len() != 2 {
+        return Ordering::Equal;
+    }
+
+    let exp: i64 = parts[1].parse().unwrap_or(0);
+    let n_val = n.as_f64();
+    let n_negative = n_val < 0.0;
+
+    // Different signs
+    if n_negative != negative {
+        return if n_negative { Ordering::Less } else { Ordering::Greater };
+    }
+
+    // Same sign - compare based on exponent
+    // For f64, max exponent is about 308
+    if exp > 400 {
+        // Literal is huge - if positive, it's greater; if negative, it's less
+        return if negative { Ordering::Greater } else { Ordering::Less };
+    } else if exp < -400 {
+        // Literal is tiny - if positive, number is greater; if negative, number is less
+        return if negative { Ordering::Less } else { Ordering::Greater };
+    }
+
+    // For reasonable exponents, compare values
+    // This shouldn't happen for literal numbers (they're only for extreme exponents)
+    Ordering::Equal
 }
 
 impl Hash for Jv {
@@ -423,6 +520,7 @@ impl Hash for Jv {
             Jv::Null => {}
             Jv::Bool(b) => b.hash(state),
             Jv::Number(n) => n.hash(state),
+            Jv::LiteralNumber(s) => s.hash(state),
             Jv::String(s) => s.hash(state),
             Jv::Array(a) => a.hash(state),
             Jv::Object(o) => o.hash(state),
@@ -438,6 +536,7 @@ impl fmt::Display for Jv {
             Jv::Bool(true) => write!(f, "true"),
             Jv::Bool(false) => write!(f, "false"),
             Jv::Number(n) => write!(f, "{}", n),
+            Jv::LiteralNumber(s) => write!(f, "{}", s),
             Jv::String(s) => write!(f, "\"{}\"", s.as_str().escape_default()),
             Jv::Array(a) => write!(f, "{}", a),
             Jv::Object(o) => write!(f, "{}", o),

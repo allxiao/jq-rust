@@ -240,6 +240,8 @@ pub enum Literal {
     Null,
     Bool(bool),
     Number(f64),
+    /// Literal number with extreme exponent, stored as normalized string
+    LiteralNumber(String),
     String(String),
 }
 

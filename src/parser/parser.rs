@@ -767,6 +767,13 @@ impl<'a> Parser<'a> {
                 Ok(Expr::new(ExprKind::Literal(Literal::Number(n)), token.span))
             }
 
+            // Literal number with extreme exponent
+            TokenKind::LiteralNumber(s) => {
+                let s = s.clone();
+                self.advance();
+                Ok(Expr::new(ExprKind::Literal(Literal::LiteralNumber(s)), token.span))
+            }
+
             // String literal
             TokenKind::StringStart => self.parse_string(),
 

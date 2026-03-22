@@ -41,6 +41,9 @@ pub enum TokenKind {
     // Literals
     /// Number literal (integer or float)
     Number(f64),
+    /// Literal number that can't be represented as f64 (extreme exponents)
+    /// Stores the normalized string representation
+    LiteralNumber(String),
     /// Start of a string (opening quote)
     StringStart,
     /// String text content
@@ -275,6 +278,7 @@ impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Number(n) => write!(f, "{}", n),
+            TokenKind::LiteralNumber(s) => write!(f, "{}", s),
             TokenKind::StringStart => write!(f, "\""),
             TokenKind::StringText(s) => write!(f, "{}", s),
             TokenKind::StringInterpStart => write!(f, "\\("),

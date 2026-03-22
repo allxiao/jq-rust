@@ -109,6 +109,7 @@ fn write_jv<W: Write>(w: &mut W, value: &Jv, options: &JvPrintOptions) -> std::f
         Jv::Bool(true) => write!(w, "true"),
         Jv::Bool(false) => write!(w, "false"),
         Jv::Number(n) => write!(w, "{}", n),
+        Jv::LiteralNumber(s) => write!(w, "{}", s), // Output the literal string as-is
         Jv::String(s) => {
             if options.raw_output {
                 write!(w, "{}", s.as_str())

@@ -524,7 +524,11 @@ impl<'a> Lexer<'a> {
 
         let num_str = std::str::from_utf8(&self.input[start..self.pos]).unwrap_or("0");
         match num_str.parse::<f64>() {
-            Ok(n) => TokenKind::Number(n),
+            Ok(n) => {
+                // For extreme exponents that overflow to infinity or underflow to zero,
+                // we keep them as-is (infinity/zero) since we don't have decnum support.
+                TokenKind::Number(n)
+            }
             Err(_) => TokenKind::Error(format!("invalid number: {}", num_str)),
         }
     }

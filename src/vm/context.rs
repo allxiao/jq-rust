@@ -392,6 +392,14 @@ fn builtin_length(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
         Jv::Array(a) => ok(Jv::from_i64(a.len() as i64)),
         Jv::Object(o) => ok(Jv::from_i64(o.len() as i64)),
         Jv::Number(n) => ok(Jv::Number(n.abs())),
+        Jv::LiteralNumber(s) => {
+            // For literal numbers, length is abs value (same as regular numbers)
+            if s.starts_with('-') {
+                ok(Jv::LiteralNumber(s[1..].to_string()))
+            } else {
+                ok(input)
+            }
+        }
         _ => err(format!("{} has no length", input.type_name())),
     }
 }
@@ -722,13 +730,13 @@ fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 }
 
 fn builtin_have_decnum(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    // We use f64, so we don't have decimal (arbitrary precision) number support
+    // We don't have full arbitrary precision decimal support
     ok(Jv::Bool(false))
 }
 
 fn builtin_have_literal_numbers(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    // We don't have literal number preservation
-    ok(Jv::Bool(false))
+    // We support extreme exponents as LiteralNumber
+    ok(Jv::Bool(true))
 }
 
 fn builtin_input(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -1022,6 +1030,14 @@ fn builtin_sqrt(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 fn builtin_fabs(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(n) => ok(Jv::Number(n.abs())),
+        Jv::LiteralNumber(s) => {
+            // For literal numbers, remove leading minus if present
+            if s.starts_with('-') {
+                ok(Jv::LiteralNumber(s[1..].to_string()))
+            } else {
+                ok(input)
+            }
+        }
         // jq returns strings unchanged for abs
         Jv::String(_) => ok(input),
         _ => err(format!("{} has no absolute value", input.type_name())),

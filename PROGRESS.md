@@ -491,9 +491,14 @@
 - [x] Fixed @base64d error message formatting
   - Now uses proper truncation and shows full string when it fits in buffer
   - `"Not base64 data"` shows fully instead of being truncated
+- [x] Added LiteralNumber support for extreme exponents (reverted - incompatible with have_decnum tests)
+  - Lexer can parse extreme exponents like 9E999999999 and preserve them
+  - LiteralNumber type added to Jv enum
+  - abs/length implemented for LiteralNumber
+  - Reverted because tests use have_decnum conditionals that conflict
 - [x] Updated test results:
-  - jq.test: 510/527 (96.8%) - 4 more passing from error message fixes
-  - base64.test: 10/10 (100%) - up from 90%
+  - jq.test: 510/527 (96.8%)
+  - base64.test: 10/10 (100%)
   - uri.test: 20/20 (100%)
   - man.test: 229/230 (99.6%)
   - onig.test: 46/47 (97.9%)

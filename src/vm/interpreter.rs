@@ -64,6 +64,7 @@ impl Interpreter {
                     Literal::Null => Jv::Null,
                     Literal::Bool(b) => Jv::Bool(*b),
                     Literal::Number(n) => Jv::from_f64(*n),
+                    Literal::LiteralNumber(s) => Jv::literal_number(s),
                     Literal::String(s) => Jv::string(s),
                 };
                 Box::new(std::iter::once(Ok(v)))
@@ -561,6 +562,14 @@ impl Interpreter {
                     match result {
                         Err(e) => Err(e),
                         Ok(Jv::Number(n)) => Ok(Jv::Number(n.neg())),
+                        Ok(Jv::LiteralNumber(s)) => {
+                            // Negate a literal number by toggling the sign
+                            if s.starts_with('-') {
+                                Ok(Jv::LiteralNumber(s[1..].to_string()))
+                            } else {
+                                Ok(Jv::LiteralNumber(format!("-{}", s)))
+                            }
+                        }
                         Ok(v) => Err(format!("{} cannot be negated", format_value_for_error(&v))),
                     }
                 }))
