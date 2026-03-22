@@ -9,8 +9,10 @@ pub mod parser;
 pub mod vm;
 pub mod builtins;
 pub mod testing;
+pub mod module;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;
-pub use parser::{parse, Expr, ExprKind};
+pub use parser::{parse, parse_program_full, Expr, ExprKind};
 pub use vm::{interpret, Interpreter, Context};
+pub use module::{ModuleLoader, set_module_search_path, get_module_search_path};

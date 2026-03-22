@@ -4,6 +4,8 @@
 //! to prevent regressions.
 
 use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
+use jq_rust::set_module_search_path;
+use std::path::PathBuf;
 
 /// Minimum number of tests that must pass (updated as we fix more)
 const BASELINE_PASS_COUNT: usize = 336;
@@ -37,10 +39,16 @@ fn run_test_suite() -> (usize, usize, usize) {
         "jq/tests/jq.test",
     ];
 
-    let content = test_paths
+    let (test_file_path, content) = test_paths
         .iter()
-        .find_map(|p| std::fs::read_to_string(p).ok())
+        .find_map(|p| {
+            std::fs::read_to_string(p).ok().map(|c| (PathBuf::from(p), c))
+        })
         .expect("Could not find jq/tests/jq.test");
+
+    // Set module search path to the directory containing the test modules
+    let modules_dir = test_file_path.parent().unwrap().join("modules");
+    set_module_search_path(Some(modules_dir));
 
     let test_cases = parse_test_file(&content);
 

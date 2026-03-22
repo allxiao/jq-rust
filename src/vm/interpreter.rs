@@ -611,8 +611,8 @@ impl Interpreter {
                 self.eval_object(entries, input, ctx)
             }
 
-            ExprKind::FunctionCall { name, args } => {
-                self.eval_function_call(name, args, input, ctx)
+            ExprKind::FunctionCall { module, name, args } => {
+                self.eval_function_call(module.as_deref(), name, args, input, ctx)
             }
 
             ExprKind::Variable(name) => {
@@ -1136,6 +1136,20 @@ impl Interpreter {
                 // Signal a break to the corresponding label
                 Box::new(std::iter::once(Err(make_break_signal(label))))
             }
+
+            ExprKind::WithImports { imports, module_meta: _, body } => {
+                // Process imports and add bindings to context
+                // Create a module loader and process the imports
+                let mut loader = crate::module::ModuleLoader::new();
+
+                // Process each import
+                if let Err(e) = loader.process_imports(imports, &ctx) {
+                    return Box::new(std::iter::once(Err(e)));
+                }
+
+                // Evaluate the body with the updated context
+                self.eval_expr(body, input, ctx)
+            }
         }
     }
 
@@ -1228,8 +1242,24 @@ impl Interpreter {
         Box::new(results.into_iter())
     }
 
-    fn eval_function_call(&mut self, name: &str, args: &[Expr], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_function_call(&mut self, module: Option<&str>, name: &str, args: &[Expr], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         let arity = args.len();
+
+        // If module is specified, look up in that module's namespace
+        if let Some(mod_name) = module {
+            let maybe_func = ctx.borrow().lookup_module_function(mod_name, name, arity);
+            if let Some((func_def, closure_ctx)) = maybe_func {
+                return self.call_user_function(&func_def, args, input, ctx, closure_ctx);
+            }
+            // Also check for data variable: $mod::var
+            let var_name = format!("{}::{}", mod_name, name);
+            if let Some(v) = ctx.borrow().lookup_value(&var_name) {
+                return Box::new(std::iter::once(Ok(v)));
+            }
+            return Box::new(std::iter::once(Err(format!(
+                "{}::{}/{} is not defined", mod_name, name, arity
+            ))));
+        }
 
         // Check for special built-in higher-order functions
         match (name, arity) {
@@ -2921,7 +2951,7 @@ impl Interpreter {
                     }
                 }
             }
-            ExprKind::FunctionCall { name, args } => {
+            ExprKind::FunctionCall { name, args, .. } => {
                 // For function calls like empty, we evaluate and if it produces no results,
                 // return input unchanged. This handles del(empty) = identity
                 if name == "empty" && args.is_empty() {
@@ -3717,7 +3747,7 @@ impl Interpreter {
                     paths.extend(collect_paths(left, input, ctx.clone(), current_path.clone()));
                     paths.extend(collect_paths(right, input, ctx, current_path));
                 }
-                ExprKind::FunctionCall { name, args } => {
+                ExprKind::FunctionCall { name, args, .. } => {
                     // For function calls like select(...), we need to evaluate and filter
                     if name == "select" && args.len() == 1 {
                         // select(cond): only returns current path if cond is true
@@ -4947,7 +4977,7 @@ impl Interpreter {
                 // Apply assignment to body in child context
                 Self::apply_assignment(current, body, value, _path, child_ctx)
             }
-            ExprKind::FunctionCall { name, args } if name == "getpath" && args.len() == 1 => {
+            ExprKind::FunctionCall { name, args, .. } if name == "getpath" && args.len() == 1 => {
                 // getpath(path) = value is equivalent to setpath(path; value)
                 let mut interp = Interpreter { ctx: ctx.clone() };
                 let path_val = match interp.eval_expr(&args[0], current.clone(), ctx.clone()).next() {
@@ -5013,7 +5043,7 @@ impl Interpreter {
                 result = set_path(result, &components, value)?;
                 Ok(result)
             }
-            ExprKind::FunctionCall { name, args } => {
+            ExprKind::FunctionCall { name, args, .. } => {
                 // Check if this is a call to a 0-arity function that's actually an expression binding
                 // This handles cases like: def x: .[0]; x = 10
                 // or filter parameters like: def inc(x): x |= .+1; inc(.foo)

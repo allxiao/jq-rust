@@ -95,7 +95,7 @@ impl BuiltinRegistry {
         self.register("todate", 0, builtin_todate);
         self.register("dateadd", 2, builtin_dateadd);
         self.register("datesub", 2, builtin_datesub);
-        self.register("modulemeta", 1, builtin_modulemeta);
+        self.register("modulemeta", 0, builtin_modulemeta);
         self.register("getpath", 1, builtin_getpath);
         self.register("delpaths", 1, builtin_delpaths);
         self.register("input", 0, builtin_input);
@@ -322,6 +322,33 @@ impl Context {
             Some(Binding::FilterClosure { def, ctx }) => Some((def, ctx)),
             _ => None,
         }
+    }
+
+    /// Look up a function in a specific module namespace
+    pub fn lookup_module_function(&self, module: &str, name: &str, arity: usize) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
+        // Module functions are stored as "module::name/arity"
+        let key = format!("{}::{}/{}", module, name, arity);
+        match self.lookup(&key) {
+            Some(Binding::FilterClosure { def, ctx }) => Some((def, ctx)),
+            _ => None,
+        }
+    }
+
+    /// Bind a module function (namespaced)
+    pub fn bind_module_function(&mut self, module: &str, name: &str, def: Rc<FuncDef>, closure_ctx: Rc<RefCell<Context>>) {
+        let arity = def.params.len();
+        let key = format!("{}::{}/{}", module, name, arity);
+        self.bindings.insert(key, Binding::FilterClosure { def, ctx: closure_ctx });
+    }
+
+    /// Bind a module data variable (namespaced)
+    pub fn bind_module_data(&mut self, module: &str, name: &str, value: Jv) {
+        // Bind as both $module::name and $module::module for backward compatibility
+        let key1 = format!("${}::{}", module, name);
+        self.bindings.insert(key1, Binding::Value(value.clone()));
+        // Also bind as just $module for simpler access
+        let key2 = format!("${}", module);
+        self.bindings.insert(key2, Binding::Value(value));
     }
 
     /// Get builtin function by name and arity
@@ -994,9 +1021,19 @@ fn builtin_datesub(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iter
     err("datesub not implemented".to_string())
 }
 
-fn builtin_modulemeta(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    // Return empty object for now - module system not implemented
-    ok(Jv::Object(crate::jv::JvObject::new()))
+fn builtin_modulemeta(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // modulemeta takes a module name and returns metadata
+    match input {
+        Jv::String(s) => {
+            let module_name = s.as_str();
+            let mut loader = crate::module::ModuleLoader::new();
+            match loader.get_module_meta(module_name) {
+                Ok(meta) => ok(meta),
+                Err(e) => err(e),
+            }
+        }
+        _ => err(format!("modulemeta input module name must be a string")),
+    }
 }
 
 fn builtin_floor(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {

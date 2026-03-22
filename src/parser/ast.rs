@@ -20,10 +20,12 @@ pub struct Program {
 pub struct Import {
     /// Path to import
     pub path: String,
-    /// Alias for the import
+    /// Alias for the import (None for include)
     pub alias: Option<String>,
     /// Whether this is a data import (import as $var)
     pub is_data: bool,
+    /// Whether this is an include (vs import)
+    pub is_include: bool,
     /// Import metadata
     pub metadata: Option<Expr>,
     pub span: Span,
@@ -146,8 +148,10 @@ pub enum ExprKind {
         extract: Option<Box<Expr>>,
     },
 
-    /// Function call: name or name(args)
+    /// Function call: name or name(args) or namespace::name
     FunctionCall {
+        /// Optional module namespace (e.g., "foo" in foo::bar)
+        module: Option<String>,
         name: String,
         args: Vec<Expr>,
     },
@@ -232,6 +236,13 @@ pub enum ExprKind {
 
     /// Parenthesized expression
     Paren(Box<Expr>),
+
+    /// Program with imports (internal use during interpretation)
+    WithImports {
+        imports: Vec<Import>,
+        module_meta: Option<Box<Expr>>,
+        body: Box<Expr>,
+    },
 }
 
 /// Literal values

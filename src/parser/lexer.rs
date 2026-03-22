@@ -169,7 +169,14 @@ impl<'a> Lexer<'a> {
                     TokenKind::Pipe
                 }
             }
-            b':' => TokenKind::Colon,
+            b':' => {
+                if self.peek() == Some(b':') {
+                    self.advance();
+                    TokenKind::DoubleColon
+                } else {
+                    TokenKind::Colon
+                }
+            }
             b'?' => {
                 if self.peek() == Some(b'/') && self.peek_next() == Some(b'/') {
                     self.advance();

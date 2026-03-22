@@ -10,4 +10,4 @@ mod parser;
 pub use token::{Token, TokenKind};
 pub use lexer::Lexer;
 pub use ast::*;
-pub use parser::{parse, Parser, ParseError};
+pub use parser::{parse, parse_program_full, Parser, ParseError};

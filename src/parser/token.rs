@@ -74,6 +74,8 @@ pub enum TokenKind {
     Comma,
     /// :
     Colon,
+    /// ::
+    DoubleColon,
     /// ;
     Semicolon,
     /// (
@@ -292,6 +294,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::Comma => write!(f, ","),
             TokenKind::Colon => write!(f, ":"),
+            TokenKind::DoubleColon => write!(f, "::"),
             TokenKind::Semicolon => write!(f, ";"),
             TokenKind::LParen => write!(f, "("),
             TokenKind::RParen => write!(f, ")"),

@@ -48,6 +48,151 @@ impl<'a> Parser<'a> {
         self.parse_query()
     }
 
+    /// Parse a complete program with imports - returns combined Expr
+    pub fn parse_program(&mut self) -> Result<Expr, ParseError> {
+        let program = self.parse_program_ast()?;
+
+        // Combine imports, defs, and query into a single expression
+        let mut result = program.query;
+
+        // Wrap with local defs (in reverse order so first def is outermost)
+        for def in program.defs.into_iter().rev() {
+            let span = def.span.merge(result.span);
+            result = Expr::new(
+                ExprKind::LocalDef {
+                    def,
+                    body: Box::new(result),
+                },
+                span,
+            );
+        }
+
+        // For now, store imports in a special expression if present
+        if !program.imports.is_empty() {
+            let span = program.imports[0].span.merge(result.span);
+            result = Expr::new(
+                ExprKind::WithImports {
+                    imports: program.imports,
+                    module_meta: program.module.map(Box::new),
+                    body: Box::new(result),
+                },
+                span,
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// Parse a full program with module metadata, imports, and body
+    pub fn parse_program_ast(&mut self) -> Result<Program, ParseError> {
+        // Optional module declaration: module { ... };
+        let module = if self.check(&TokenKind::Module) {
+            self.advance();
+            let meta = self.parse_query()?;
+            self.expect(&TokenKind::Semicolon)?;
+            Some(meta)
+        } else {
+            None
+        };
+
+        // Parse imports and includes
+        let mut imports = Vec::new();
+        while self.check(&TokenKind::Import) || self.check(&TokenKind::Include) {
+            imports.push(self.parse_import()?);
+        }
+
+        // Parse function definitions at module level
+        let mut defs = Vec::new();
+        while self.check(&TokenKind::Def) {
+            let def = self.parse_func_def()?;
+            defs.push(def);
+        }
+
+        // Parse main query if present (might be EOF if library-only)
+        let query = if self.current.kind.is_eof() {
+            // Library with no main query - return identity
+            Expr::new(ExprKind::Identity, Span::default())
+        } else {
+            self.parse_query()?
+        };
+
+        Ok(Program {
+            module,
+            imports,
+            defs,
+            query,
+        })
+    }
+
+    /// Parse an import or include statement
+    fn parse_import(&mut self) -> Result<Import, ParseError> {
+        let start = self.current.span;
+        let is_include = self.check(&TokenKind::Include);
+
+        if is_include {
+            self.advance(); // consume 'include'
+        } else {
+            self.expect(&TokenKind::Import)?;
+        }
+
+        // Path must be a constant string
+        let path = self.parse_import_path()?;
+
+        // For include, no alias
+        // For import, need "as" followed by IDENT or BINDING
+        let (alias, is_data) = if is_include {
+            (None, false)
+        } else {
+            self.expect(&TokenKind::As)?;
+            if let TokenKind::Binding(name) = &self.current.kind {
+                // import "path" as $var (data import)
+                let name = name.clone();
+                self.advance();
+                (Some(name), true)
+            } else if let TokenKind::Ident(name) = &self.current.kind {
+                // import "path" as name
+                let name = name.clone();
+                self.advance();
+                (Some(name), false)
+            } else {
+                return Err(self.error("expected identifier or $variable after 'as'"));
+            }
+        };
+
+        // Optional metadata: import "path" as foo { key: value };
+        let metadata = if self.check(&TokenKind::LBrace) || self.check(&TokenKind::LParen) {
+            Some(self.parse_query()?)
+        } else {
+            None
+        };
+
+        let end = self.current.span;
+        self.expect(&TokenKind::Semicolon)?;
+
+        Ok(Import {
+            path,
+            alias,
+            is_data,
+            is_include,
+            metadata,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parse import path - must be a constant string
+    fn parse_import_path(&mut self) -> Result<String, ParseError> {
+        if !self.check(&TokenKind::StringStart) {
+            return Err(self.error("import path must be a string"));
+        }
+
+        let string_expr = self.parse_string()?;
+        if let ExprKind::Literal(Literal::String(s)) = string_expr.kind {
+            Ok(s)
+        } else {
+            Err(self.error("import path must be a constant string (no interpolation)"))
+        }
+    }
+
     /// Parse a complete query (handles pipes, commas, and bindings)
     fn parse_query(&mut self) -> Result<Expr, ParseError> {
         // Check for function definition
@@ -788,6 +933,21 @@ impl<'a> Parser<'a> {
                     "false" => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), token.span)),
                     "null" => Ok(Expr::new(ExprKind::Literal(Literal::Null), token.span)),
                     _ => {
+                        // Check for namespaced call: name::func
+                        let (module, func_name) = if self.check(&TokenKind::DoubleColon) {
+                            self.advance();
+                            // Get the function name after ::
+                            if let TokenKind::Ident(func) = &self.current.kind {
+                                let func = func.clone();
+                                self.advance();
+                                (Some(name), func)
+                            } else {
+                                return Err(self.error("expected function name after ::"));
+                            }
+                        } else {
+                            (None, name)
+                        };
+
                         // Function call
                         let args = if self.check(&TokenKind::LParen) {
                             self.parse_func_args()?
@@ -795,7 +955,7 @@ impl<'a> Parser<'a> {
                             Vec::new()
                         };
                         Ok(Expr::new(
-                            ExprKind::FunctionCall { name, args },
+                            ExprKind::FunctionCall { module, name: func_name, args },
                             token.span,
                         ))
                     }
@@ -806,16 +966,39 @@ impl<'a> Parser<'a> {
             TokenKind::Not => {
                 self.advance();
                 Ok(Expr::new(
-                    ExprKind::FunctionCall { name: "not".to_string(), args: Vec::new() },
+                    ExprKind::FunctionCall { module: None, name: "not".to_string(), args: Vec::new() },
                     token.span,
                 ))
             }
 
-            // Variable reference
+            // Variable reference: $var or $var::name
             TokenKind::Binding(name) => {
                 let name = name.clone();
                 self.advance();
-                Ok(Expr::new(ExprKind::Variable(name), token.span))
+
+                // Check for namespaced data variable: $var::name
+                if self.check(&TokenKind::DoubleColon) {
+                    self.advance();
+                    // Get the data name after ::
+                    if let TokenKind::Ident(data_name) = &self.current.kind {
+                        let data_name = data_name.clone();
+                        self.advance();
+                        // This is a namespaced data access: $module::data
+                        // We represent this as a function call to handle it uniformly
+                        Ok(Expr::new(
+                            ExprKind::FunctionCall {
+                                module: Some(name),
+                                name: data_name,
+                                args: Vec::new(),
+                            },
+                            token.span,
+                        ))
+                    } else {
+                        Err(self.error("expected name after $var::"))
+                    }
+                } else {
+                    Ok(Expr::new(ExprKind::Variable(name), token.span))
+                }
             }
 
             // $__loc__
@@ -1469,13 +1652,25 @@ impl<'a> Parser<'a> {
 /// Parse a jq filter expression
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
     let mut parser = Parser::new(input);
-    let expr = parser.parse_expr()?;
+    let program = parser.parse_program()?;
 
     if !parser.current.kind.is_eof() {
         return Err(parser.error("unexpected token after expression"));
     }
 
-    Ok(expr)
+    Ok(program)
+}
+
+/// Parse a full jq program with potential imports
+pub fn parse_program_full(input: &str) -> Result<Program, ParseError> {
+    let mut parser = Parser::new(input);
+    let program = parser.parse_program_ast()?;
+
+    if !parser.current.kind.is_eof() {
+        return Err(parser.error("unexpected token after expression"));
+    }
+
+    Ok(program)
 }
 
 #[cfg(test)]
@@ -1550,7 +1745,7 @@ mod tests {
         let expr = parse_ok("map(. + 1)");
         assert!(matches!(
             expr.kind,
-            ExprKind::FunctionCall { name, args } if name == "map" && args.len() == 1
+            ExprKind::FunctionCall { name, args, .. } if name == "map" && args.len() == 1
         ));
     }
 
