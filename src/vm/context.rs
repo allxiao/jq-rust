@@ -1237,8 +1237,8 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     let mut arr = match current {
                         Jv::Array(a) => a,
                         Jv::Null => crate::jv::JvArray::new(),
-                        Jv::Object(_) => return Err("Cannot index object with number".to_string()),
-                        _ => return Err(format!("Cannot index {} with number", current.type_name())),
+                        Jv::Object(_) => return Err(format!("Cannot index object with number ({})", idx)),
+                        _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);

@@ -165,8 +165,8 @@ fn write_array<W: Write>(
     arr: &super::JvArray,
     options: &JvPrintOptions,
 ) -> std::fmt::Result {
-    // Check depth limit
-    if options.depth >= MAX_PRINT_DEPTH {
+    // Check depth limit - jq uses > (not >=) so depth 10000 is allowed
+    if options.depth > MAX_PRINT_DEPTH {
         return w.write_str("<skipped: too deep>");
     }
 
@@ -202,8 +202,8 @@ fn write_object<W: Write>(
     obj: &super::JvObject,
     options: &JvPrintOptions,
 ) -> std::fmt::Result {
-    // Check depth limit
-    if options.depth >= MAX_PRINT_DEPTH {
+    // Check depth limit - jq uses > (not >=) so depth 10000 is allowed
+    if options.depth > MAX_PRINT_DEPTH {
         return w.write_str("<skipped: too deep>");
     }
 

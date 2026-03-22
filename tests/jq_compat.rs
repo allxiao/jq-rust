@@ -8,8 +8,28 @@ use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 /// Minimum number of tests that must pass (updated as we fix more)
 const BASELINE_PASS_COUNT: usize = 336;
 
+/// Stack size for the test thread (16 MB to handle deeply nested structures)
+const TEST_STACK_SIZE: usize = 16 * 1024 * 1024;
+
 #[test]
 fn jq_test_suite_baseline() {
+    // Run in a thread with larger stack to handle deeply nested JSON structures
+    let result = std::thread::Builder::new()
+        .stack_size(TEST_STACK_SIZE)
+        .spawn(run_test_suite)
+        .expect("Failed to spawn test thread")
+        .join()
+        .expect("Test thread panicked");
+
+    assert!(
+        result.0 >= BASELINE_PASS_COUNT,
+        "Regression: only {} tests passed, expected at least {}",
+        result.0,
+        BASELINE_PASS_COUNT
+    );
+}
+
+fn run_test_suite() -> (usize, usize, usize) {
     // Find the jq.test file - try relative paths from workspace root
     let test_paths = [
         "../../jq/tests/jq.test",
@@ -30,7 +50,7 @@ fn jq_test_suite_baseline() {
     let mut failures: Vec<(usize, String, String)> = Vec::new();
     let mut errors: Vec<(usize, String, String)> = Vec::new();
 
-    for (i, tc) in test_cases.iter().enumerate() {
+    for tc in test_cases.iter() {
         let (filter, line_number) = match tc {
             TestCase::Normal { filter, line_number, .. } => (filter.clone(), *line_number),
             TestCase::ShouldFail { filter, line_number, .. } => (filter.clone(), *line_number),
@@ -78,10 +98,5 @@ fn jq_test_suite_baseline() {
         pass_count, total, fail_count, error_count
     );
 
-    assert!(
-        pass_count >= BASELINE_PASS_COUNT,
-        "Regression: only {} tests passed, expected at least {}",
-        pass_count,
-        BASELINE_PASS_COUNT
-    );
+    (pass_count, fail_count, error_count)
 }
