@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~88%
+**Overall Progress**: ~89%
 
 ## Session Log
 
@@ -329,7 +329,13 @@
 - [x] Fixed binary operation generator order to match jq semantics
   - jq iterates left values for each right value, not the other way around
   - `(1,2) + (3,4)` now produces `4,5,5,6` in correct order: 1+3, 2+3, 1+4, 2+4
-- [x] Integration tests: 467/527 jq.test cases passing (88.6%)
+- [x] Fixed try expression parsing to allow unary expressions
+  - `try -.? catch .` now parses correctly
+- [x] Fixed UTF-8 string truncation in error messages
+  - Prevents panic on multi-byte characters (was using byte count instead of char count)
+- [x] Added `//=` (alternative update) operator
+  - `.[] //= .[0]` replaces falsy values with the alternative
+- [x] Integration tests: 470/527 jq.test cases passing (89.2%)
 
 ## Known Limitations
 
@@ -397,7 +403,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 467           | 527         | 88.6%    |
+| jq.test    | 470           | 527         | 89.2%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
