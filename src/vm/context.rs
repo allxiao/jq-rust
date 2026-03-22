@@ -82,6 +82,10 @@ impl BuiltinRegistry {
         self.register("$__loc__", 0, builtin_loc);
         self.register("builtins", 0, builtin_builtins);
         self.register("now", 0, builtin_now);
+        self.register("gmtime", 0, builtin_gmtime);
+        self.register("mktime", 0, builtin_mktime);
+        self.register("strftime", 1, builtin_strftime);
+        self.register("strptime", 1, builtin_strptime);
         self.register("modulemeta", 1, builtin_modulemeta);
         self.register("getpath", 1, builtin_getpath);
         self.register("delpaths", 1, builtin_delpaths);
@@ -601,6 +605,133 @@ fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
         .unwrap_or_default();
     let secs = duration.as_secs_f64();
     ok(Jv::from_f64(secs))
+}
+
+fn builtin_gmtime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::Number(n) => {
+            let timestamp = n.as_f64() as i64;
+            use chrono::{TimeZone, Datelike, Timelike};
+            match chrono::Utc.timestamp_opt(timestamp, 0) {
+                chrono::LocalResult::Single(dt) => {
+                    // jq format: [year, month (0-11), day (1-31), hour, minute, second, weekday (0=Sun), yearday (0-365)]
+                    let arr = vec![
+                        Jv::from_i64(dt.year() as i64),
+                        Jv::from_i64(dt.month0() as i64),  // 0-indexed month
+                        Jv::from_i64(dt.day() as i64),
+                        Jv::from_i64(dt.hour() as i64),
+                        Jv::from_i64(dt.minute() as i64),
+                        Jv::from_i64(dt.second() as i64),
+                        Jv::from_i64(dt.weekday().num_days_from_sunday() as i64),
+                        Jv::from_i64(dt.ordinal0() as i64),  // 0-indexed day of year
+                    ];
+                    ok(Jv::from_vec(arr))
+                }
+                _ => err("invalid timestamp".to_string()),
+            }
+        }
+        _ => err("gmtime requires number".to_string()),
+    }
+}
+
+fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::Array(arr) => {
+            if arr.len() < 3 {
+                return err("mktime requires at least [year, month, day]".to_string());
+            }
+            let year = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(1970) as i32;
+            let month = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as u32 + 1; // convert from 0-indexed
+            let day = arr.get(2).and_then(|v| v.as_i64()).unwrap_or(1) as u32;
+            let hour = arr.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+            let minute = arr.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+            let second = arr.get(5).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+
+            use chrono::{TimeZone, NaiveDate};
+            match NaiveDate::from_ymd_opt(year, month, day)
+                .and_then(|d| d.and_hms_opt(hour, minute, second))
+            {
+                Some(naive_dt) => {
+                    let dt = chrono::Utc.from_utc_datetime(&naive_dt);
+                    ok(Jv::from_i64(dt.timestamp()))
+                }
+                None => err("invalid date/time components".to_string()),
+            }
+        }
+        _ => err("mktime requires array".to_string()),
+    }
+}
+
+fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let format = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("strftime requires format string".to_string()),
+    };
+
+    use chrono::{TimeZone, Datelike, Timelike, NaiveDate};
+
+    match &input {
+        Jv::Number(n) => {
+            // Input is Unix timestamp
+            let timestamp = n.as_f64() as i64;
+            match chrono::Utc.timestamp_opt(timestamp, 0) {
+                chrono::LocalResult::Single(dt) => {
+                    ok(Jv::string(dt.format(&format).to_string()))
+                }
+                _ => err("invalid timestamp".to_string()),
+            }
+        }
+        Jv::Array(arr) => {
+            // Input is [year, month (0-11), day, hour, minute, second, ...]
+            let year = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(1970) as i32;
+            let month = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as u32 + 1; // convert from 0-indexed
+            let day = arr.get(2).and_then(|v| v.as_i64()).unwrap_or(1) as u32;
+            let hour = arr.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+            let minute = arr.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+            let second = arr.get(5).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+
+            match NaiveDate::from_ymd_opt(year, month, day)
+                .and_then(|d| d.and_hms_opt(hour, minute, second))
+            {
+                Some(naive_dt) => {
+                    let dt = chrono::Utc.from_utc_datetime(&naive_dt);
+                    ok(Jv::string(dt.format(&format).to_string()))
+                }
+                None => err("invalid date/time components".to_string()),
+            }
+        }
+        _ => err("strftime requires number or array".to_string()),
+    }
+}
+
+fn builtin_strptime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let format = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("strptime requires format string".to_string()),
+    };
+
+    match &input {
+        Jv::String(s) => {
+            use chrono::{NaiveDateTime, Datelike, Timelike};
+            match NaiveDateTime::parse_from_str(s.as_str(), &format) {
+                Ok(dt) => {
+                    let arr = vec![
+                        Jv::from_i64(dt.year() as i64),
+                        Jv::from_i64(dt.month0() as i64),  // 0-indexed month
+                        Jv::from_i64(dt.day() as i64),
+                        Jv::from_i64(dt.hour() as i64),
+                        Jv::from_i64(dt.minute() as i64),
+                        Jv::from_i64(dt.second() as i64),
+                        Jv::from_i64(dt.weekday().num_days_from_sunday() as i64),
+                        Jv::from_i64(dt.ordinal0() as i64),
+                    ];
+                    ok(Jv::from_vec(arr))
+                }
+                Err(_) => err(format!("cannot parse '{}' with format '{}'", s.as_str(), format)),
+            }
+        }
+        _ => err("strptime requires string".to_string()),
+    }
 }
 
 fn builtin_modulemeta(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -1765,7 +1896,10 @@ fn builtin_bsearch(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                 ok(Jv::from_i64(-lo - 1))
             }
         }
-        _ => err("bsearch requires array input".to_string()),
+        _ => {
+            use crate::jv::print_jv;
+            err(format!("{} ({}) cannot be searched from", input.type_name(), print_jv(&input)))
+        }
     }
 }
 
