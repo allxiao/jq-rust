@@ -800,6 +800,37 @@ impl Interpreter {
                     &target_expr
                 };
 
+                // Special handling for comma targets: (.a, .b) |= f
+                // For comma expressions, we apply the update once and use the same value for all paths
+                if let ExprKind::Comma(left, right) = &effective_target.kind {
+                    let left = left.clone();
+                    let right = right.clone();
+                    let ctx_for_closure = ctx_clone.clone();
+
+                    return Box::new(std::iter::once((|| {
+                        // Get the first value at the first path
+                        let mut get_interp = Interpreter { ctx: ctx_for_closure.clone() };
+                        let current_val = match get_interp.eval_expr(&left, input.clone(), ctx_for_closure.clone()).next() {
+                            Some(Ok(v)) => v,
+                            Some(Err(e)) => return Err(e),
+                            None => Jv::Null,
+                        };
+
+                        // Apply the value expression to get the new value
+                        let mut val_interp = Interpreter { ctx: ctx_for_closure.clone() };
+                        let new_value = match val_interp.eval_expr(&value_expr, current_val, ctx_for_closure.clone()).next() {
+                            Some(Ok(v)) => v,
+                            Some(Err(e)) => return Err(e),
+                            None => return Ok(input.clone()), // empty produces no output, return input unchanged
+                        };
+
+                        // Apply the value to both paths
+                        let mut path_parts: Vec<Jv> = Vec::new();
+                        let result = Self::apply_assignment(input.clone(), &left, new_value.clone(), &mut path_parts, ctx_for_closure.clone())?;
+                        Self::apply_assignment(result, &right, new_value, &mut path_parts, ctx_for_closure)
+                    })()));
+                }
+
                 // Special handling for iterator targets like .[] |= f
                 if let ExprKind::Iterator { expr: iter_base, optional: _ } = &effective_target.kind {
                     return self.apply_update_to_iterator(
@@ -4495,6 +4526,11 @@ impl Interpreter {
                     }
                 }
                 Err(format!("Cannot assign to expression: {:?}", target.kind))
+            }
+            ExprKind::Comma(left, right) => {
+                // (.a, .b) = value assigns value to both paths
+                let result = Self::apply_assignment(current, left, value.clone(), _path, ctx.clone())?;
+                Self::apply_assignment(result, right, value, _path, ctx)
             }
             _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
         }
