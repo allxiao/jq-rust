@@ -166,6 +166,11 @@
 - [x] Fixed string slicing with negative indices
 - [x] Integration tests: 318/527 jq.test cases passing (60%)
 
+### Session 11 (2026-03-20)
+- [x] Added null slice support (.[1:3] on null returns null)
+- [x] Added `toboolean` function for parsing "true"/"false" strings
+- [x] Integration tests: 322/527 jq.test cases passing (61%)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
