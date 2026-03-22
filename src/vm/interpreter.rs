@@ -10,6 +10,19 @@ use super::context::Context;
 /// Result of evaluating an expression - can produce multiple values
 pub type EvalResult = Box<dyn Iterator<Item = Result<Jv, String>>>;
 
+/// Prefix used to signal a break from a label
+const BREAK_PREFIX: &str = "__BREAK__:";
+
+/// Check if an error is a break signal for a given label
+fn is_break_for(err: &str, label: &str) -> bool {
+    err == format!("{}{}", BREAK_PREFIX, label)
+}
+
+/// Create a break signal error
+fn make_break_signal(label: &str) -> String {
+    format!("{}{}", BREAK_PREFIX, label)
+}
+
 /// The jq interpreter
 pub struct Interpreter {
     ctx: Rc<RefCell<Context>>,
@@ -489,9 +502,11 @@ impl Interpreter {
             }
 
             ExprKind::LocalDef { def, body } => {
-                // Register function in context
+                // Register function in context with closure capturing current context
                 let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
-                child_ctx.borrow_mut().bind_function(&def.name, Rc::new(def.clone()));
+                // The closure captures the child context (which has parent = ctx)
+                // so that the function can see bindings from when it was defined
+                child_ctx.borrow_mut().bind_function(&def.name, Rc::new(def.clone()), child_ctx.clone());
 
                 let mut inner = Interpreter { ctx: child_ctx.clone() };
                 inner.eval_expr(body, input, child_ctx)
@@ -669,6 +684,36 @@ impl Interpreter {
                 }))
             }
 
+            ExprKind::Label { name, body } => {
+                // Evaluate body, catching break signals for this label
+                let label_name = name.clone();
+                let body_expr = body.clone();
+                let mut body_interp = Interpreter { ctx: ctx.clone() };
+                let mut results = Vec::new();
+
+                for result in body_interp.eval_expr(&body_expr, input, ctx) {
+                    match result {
+                        Ok(v) => results.push(Ok(v)),
+                        Err(e) if is_break_for(&e, &label_name) => {
+                            // Break caught - stop iteration but don't propagate error
+                            break;
+                        }
+                        Err(e) => {
+                            // Other error - propagate it
+                            results.push(Err(e));
+                            break;
+                        }
+                    }
+                }
+
+                Box::new(results.into_iter())
+            }
+
+            ExprKind::Break(label) => {
+                // Signal a break to the corresponding label
+                Box::new(std::iter::once(Err(make_break_signal(label))))
+            }
+
             _ => {
                 Box::new(std::iter::once(Err(format!("expression type not yet implemented: {:?}", expr.kind))))
             }
@@ -816,9 +861,11 @@ impl Interpreter {
         }
 
         // Check for user-defined function
-        let maybe_func = ctx.borrow().lookup_function(name);
-        if let Some(func_def) = maybe_func {
-            return self.call_user_function(&func_def, args, input, ctx);
+        let maybe_func = ctx.borrow().lookup_function(name, arity);
+        if let Some((func_def, closure_ctx)) = maybe_func {
+            // Use closure_ctx (definition context) for function body evaluation,
+            // but ctx (call-site context) for evaluating arguments
+            return self.call_user_function(&func_def, args, input, ctx, closure_ctx);
         }
 
         // Check for builtin
@@ -915,41 +962,101 @@ impl Interpreter {
             }
         }
 
-        Box::new(std::iter::once(Err(format!("unknown function: {}/{}", name, arity))))
-    }
-
-    fn call_user_function(&mut self, func: &FuncDef, args: &[Expr], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
-        // Create child context with parameter bindings
-        let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
-
-        // Bind parameters
-        for (param, arg) in func.params.iter().zip(args.iter()) {
-            if param.is_binding {
-                // Value parameter ($var) - evaluate and bind
-                let mut arg_interp = Interpreter { ctx: ctx.clone() };
-                match arg_interp.eval_expr(arg, input.clone(), ctx.clone()).next() {
-                    Some(Ok(v)) => {
-                        child_ctx.borrow_mut().bind_value(&param.name, v);
-                    }
-                    Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                    None => return Box::new(std::iter::empty()),
-                }
-            } else {
-                // Filter parameter (non-$) - for now, evaluate and bind as value
-                // TODO: Full filter parameter support requires storing both expression and context
-                let mut arg_interp = Interpreter { ctx: ctx.clone() };
-                match arg_interp.eval_expr(arg, input.clone(), ctx.clone()).next() {
-                    Some(Ok(v)) => {
-                        child_ctx.borrow_mut().bind_value(&param.name, v);
-                    }
-                    Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                    None => return Box::new(std::iter::empty()),
-                }
+        // Check for expression binding (filter parameter)
+        if arity == 0 {
+            let maybe_expr_ctx = ctx.borrow().lookup_expr_with_context(name);
+            if let Some((expr, eval_ctx)) = maybe_expr_ctx {
+                // Evaluate the bound expression in its original context
+                return self.eval_expr(&expr, input, eval_ctx);
             }
         }
 
-        let mut inner = Interpreter { ctx: child_ctx.clone() };
-        inner.eval_expr(&func.body, input, child_ctx)
+        Box::new(std::iter::once(Err(format!("unknown function: {}/{}", name, arity))))
+    }
+
+    fn call_user_function(&mut self, func: &FuncDef, args: &[Expr], input: Jv, call_ctx: Rc<RefCell<Context>>, closure_ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // Separate parameters into value params ($x) and filter params (x)
+        let mut value_param_indices = Vec::new();
+        let mut filter_param_indices = Vec::new();
+
+        for (i, param) in func.params.iter().enumerate() {
+            if param.is_binding {
+                value_param_indices.push(i);
+            } else {
+                filter_param_indices.push(i);
+            }
+        }
+
+        // Evaluate all value parameters and collect all their values
+        // Arguments are evaluated in the call-site context
+        let mut value_param_values: Vec<Vec<Jv>> = Vec::new();
+        for &idx in &value_param_indices {
+            let arg = &args[idx];
+            let mut arg_interp = Interpreter { ctx: call_ctx.clone() };
+            let values: Vec<_> = arg_interp.eval_expr(arg, input.clone(), call_ctx.clone())
+                .filter_map(|r| r.ok())
+                .collect();
+            if values.is_empty() {
+                return Box::new(std::iter::empty());
+            }
+            value_param_values.push(values);
+        }
+
+        // Compute cartesian product of value parameters
+        fn cartesian_product(lists: &[Vec<Jv>]) -> Vec<Vec<Jv>> {
+            if lists.is_empty() {
+                return vec![vec![]];
+            }
+            let first = &lists[0];
+            let rest = cartesian_product(&lists[1..]);
+            let mut result = Vec::new();
+            for item in first {
+                for r in &rest {
+                    let mut combo = vec![item.clone()];
+                    combo.extend(r.iter().cloned());
+                    result.push(combo);
+                }
+            }
+            result
+        }
+
+        let value_combinations = cartesian_product(&value_param_values);
+
+        // For each combination, create a context and evaluate the body
+        let func_body = func.body.clone();
+        let func_params = func.params.clone();
+        let args_clone: Vec<_> = args.iter().cloned().collect();
+        let call_ctx_clone = call_ctx.clone();
+        let closure_ctx_clone = closure_ctx.clone();
+        let input_clone = input.clone();
+        let filter_params = filter_param_indices.clone();
+        let value_params = value_param_indices.clone();
+
+        Box::new(value_combinations.into_iter().flat_map(move |combo| {
+            // Create child context with closure_ctx as parent (for lexical scoping)
+            let child_ctx = Rc::new(RefCell::new(Context::child(closure_ctx_clone.clone())));
+
+            // Bind value parameters from this combination
+            for (combo_idx, &param_idx) in value_params.iter().enumerate() {
+                let param = &func_params[param_idx];
+                child_ctx.borrow_mut().bind_value(&param.name, combo[combo_idx].clone());
+            }
+
+            // Bind filter parameters as expressions with call-site context
+            // (so they can see bindings from the call site)
+            for &param_idx in &filter_params {
+                let param = &func_params[param_idx];
+                child_ctx.borrow_mut().bind_expr_with_context(
+                    &param.name,
+                    Rc::new(args_clone[param_idx].clone()),
+                    call_ctx_clone.clone(),
+                );
+            }
+
+            let mut inner = Interpreter { ctx: child_ctx.clone() };
+            let results: Vec<_> = inner.eval_expr(&func_body, input_clone.clone(), child_ctx).collect();
+            results.into_iter()
+        }))
     }
 
     // Higher-order function implementations
@@ -1298,7 +1405,15 @@ impl Interpreter {
                     let mut update_inner = Interpreter { ctx: child_ctx.clone() };
                     match update_inner.eval_expr(update_expr, state.clone(), child_ctx.clone()).next() {
                         Some(Ok(v)) => state = v,
-                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        Some(Err(e)) => {
+                            // Check if it's a break signal - if so, propagate it
+                            // The label handler will catch it
+                            if e.starts_with(BREAK_PREFIX) {
+                                results.push(Err(e));
+                                return Box::new(results.into_iter());
+                            }
+                            return Box::new(std::iter::once(Err(e)));
+                        }
                         None => {}
                     }
 
@@ -1308,7 +1423,13 @@ impl Interpreter {
                         for ext_result in ext_inner.eval_expr(ext_expr, state.clone(), child_ctx) {
                             match ext_result {
                                 Ok(v) => results.push(Ok(v)),
-                                Err(e) => results.push(Err(e)),
+                                Err(e) => {
+                                    if e.starts_with(BREAK_PREFIX) {
+                                        results.push(Err(e));
+                                        return Box::new(results.into_iter());
+                                    }
+                                    results.push(Err(e));
+                                }
                             }
                         }
                     } else {
@@ -2739,6 +2860,12 @@ impl Interpreter {
             PatternKind::Binding(name) => {
                 ctx.borrow_mut().bind_value(name, value.clone());
                 Ok(())
+            }
+            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+                // Bind the name to the value
+                ctx.borrow_mut().bind_value(name, value.clone());
+                // Also apply the sub-pattern
+                Self::bind_pattern(sub_pattern, value, ctx)
             }
             PatternKind::Array(patterns) => {
                 // Value must be an array

@@ -323,6 +323,15 @@ pub enum PatternKind {
     Array(Vec<Pattern>),
     /// Object pattern: {foo: $a, bar: $b}
     Object(Vec<(ObjectKey, Pattern)>),
+    /// Bound pattern: $var:pattern - binds $var to value and also applies pattern
+    /// Used in object patterns like {$a:[$b, $c]} which binds $a to full value
+    /// and also destructures to $b and $c
+    BoundPattern {
+        /// Variable name to bind
+        name: String,
+        /// Sub-pattern to also apply
+        pattern: Box<Pattern>,
+    },
 }
 
 /// Part of a string with interpolation

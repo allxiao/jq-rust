@@ -12,10 +12,16 @@ use crate::parser::FuncDef;
 pub enum Binding {
     /// A value binding ($var)
     Value(Jv),
-    /// A filter/function binding (func arg)
-    Filter(Rc<FuncDef>),
-    /// An expression binding (for filter parameters in function calls)
-    Expr(Rc<crate::parser::Expr>),
+    /// A filter/function binding with closure (captures definition context)
+    FilterClosure {
+        def: Rc<FuncDef>,
+        ctx: Rc<RefCell<Context>>,
+    },
+    /// An expression binding with its evaluation context (for filter parameters)
+    ExprWithContext {
+        expr: Rc<crate::parser::Expr>,
+        ctx: Rc<RefCell<Context>>,
+    },
 }
 
 /// Execution context containing variable bindings and function definitions
@@ -225,19 +231,23 @@ impl Context {
         }
     }
 
-    /// Bind a value to a variable name
+    /// Bind a value to a variable name (stored with $ prefix internally)
     pub fn bind_value(&mut self, name: &str, value: Jv) {
-        self.bindings.insert(name.to_string(), Binding::Value(value));
+        // Value bindings use $ prefix to distinguish from filter params
+        let key = format!("${}", name);
+        self.bindings.insert(key, Binding::Value(value));
     }
 
-    /// Bind a function definition
-    pub fn bind_function(&mut self, name: &str, def: Rc<FuncDef>) {
-        self.bindings.insert(name.to_string(), Binding::Filter(def));
+    /// Bind a function definition with closure (keyed by name/arity)
+    pub fn bind_function(&mut self, name: &str, def: Rc<FuncDef>, closure_ctx: Rc<RefCell<Context>>) {
+        let arity = def.params.len();
+        let key = format!("{}/{}", name, arity);
+        self.bindings.insert(key, Binding::FilterClosure { def, ctx: closure_ctx });
     }
 
-    /// Bind an expression (for filter parameters)
-    pub fn bind_expr(&mut self, name: &str, expr: Rc<crate::parser::Expr>) {
-        self.bindings.insert(name.to_string(), Binding::Expr(expr));
+    /// Bind an expression with its context (for filter parameters)
+    pub fn bind_expr_with_context(&mut self, name: &str, expr: Rc<crate::parser::Expr>, ctx: Rc<RefCell<Context>>) {
+        self.bindings.insert(name.to_string(), Binding::ExprWithContext { expr, ctx });
     }
 
     /// Look up a binding by name
@@ -251,26 +261,28 @@ impl Context {
         None
     }
 
-    /// Look up an expression binding
-    pub fn lookup_expr(&self, name: &str) -> Option<Rc<crate::parser::Expr>> {
+    /// Look up an expression binding with its context
+    pub fn lookup_expr_with_context(&self, name: &str) -> Option<(Rc<crate::parser::Expr>, Rc<RefCell<Context>>)> {
         match self.lookup(name) {
-            Some(Binding::Expr(e)) => Some(e),
+            Some(Binding::ExprWithContext { expr, ctx }) => Some((expr, ctx)),
             _ => None,
         }
     }
 
-    /// Look up a value binding
+    /// Look up a value binding (uses $ prefix internally)
     pub fn lookup_value(&self, name: &str) -> Option<Jv> {
-        match self.lookup(name) {
+        let key = format!("${}", name);
+        match self.lookup(&key) {
             Some(Binding::Value(v)) => Some(v),
             _ => None,
         }
     }
 
-    /// Look up a function binding
-    pub fn lookup_function(&self, name: &str) -> Option<Rc<FuncDef>> {
-        match self.lookup(name) {
-            Some(Binding::Filter(f)) => Some(f),
+    /// Look up a function binding by name and arity, returns def and closure context
+    pub fn lookup_function(&self, name: &str, arity: usize) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
+        let key = format!("{}/{}", name, arity);
+        match self.lookup(&key) {
+            Some(Binding::FilterClosure { def, ctx }) => Some((def, ctx)),
             _ => None,
         }
     }

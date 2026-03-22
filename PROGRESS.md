@@ -171,6 +171,23 @@
 - [x] Added `toboolean` function for parsing "true"/"false" strings
 - [x] Integration tests: 322/527 jq.test cases passing (61%)
 
+### Session 12 (2026-03-20)
+- [x] Fixed function arity lookup - functions now keyed by name/arity
+- [x] Implemented proper lexical scoping for function closures
+  - Functions now capture their definition context, not call-site context
+  - `def f: .+1; def g: f; def f: .+100; g` correctly returns 2
+- [x] Fixed filter parameters to use call-site context for argument evaluation
+- [x] Implemented `label` and `break` control flow
+  - `label $name | expr` creates a labeled scope
+  - `break $name` exits the corresponding label
+  - Works with foreach for early termination
+- [x] Fixed namespace collision between value bindings and filter parameters
+  - Value bindings now use `$` prefix internally to avoid shadowing
+  - `def f(x): 1 as $x | x; f(5)` now correctly returns 5
+- [x] Added `BoundPattern` for object destructuring with binding
+  - `{$a:[$b, $c]}` now correctly binds `$a` to full value and destructures
+- [x] Integration tests: 333/527 jq.test cases passing (63%)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -204,9 +221,9 @@
 - [x] 5.9 Control flow functions (until, while, repeat)
 - [x] 5.10 Path functions (path, paths, pick, walk)
 
-### Phase 6: Advanced Features (30%)
+### Phase 6: Advanced Features (40%)
 - [ ] 6.1 Module system
-- [x] 6.2 User-defined functions (value parameters work, filter parameters partial)
+- [x] 6.2 User-defined functions (value and filter parameters, lexical scoping)
 - [x] 6.3 Error handling (try-catch)
 - [ ] 6.4 Streaming parser (input/inputs not yet implemented)
 - [x] 6.5 Regular expressions (complete)

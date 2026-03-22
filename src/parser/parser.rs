@@ -173,10 +173,18 @@ impl<'a> Parser<'a> {
 
             // Check if this is followed by a colon (explicit key: pattern) or standalone (shorthand)
             if self.check(&TokenKind::Colon) {
-                // Explicit pattern after binding used as key: {$a: $b} means {a: $b}
+                // Binding followed by colon: {$a: pattern}
+                // This means: bind $a to value at key "a", AND apply pattern
                 self.advance();
-                let pattern = self.parse_pattern()?;
-                return Ok((ObjectKey::Ident(name), pattern));
+                let sub_pattern = self.parse_pattern()?;
+                let bound_pattern = Pattern {
+                    kind: PatternKind::BoundPattern {
+                        name: name.clone(),
+                        pattern: Box::new(sub_pattern),
+                    },
+                    span,
+                };
+                return Ok((ObjectKey::Ident(name), bound_pattern));
             }
 
             // Shorthand: {$a} means {a: $a}
