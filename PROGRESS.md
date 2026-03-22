@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-20
-**Overall Progress**: ~60%
+**Overall Progress**: ~65%
 
 ## Session Log
 
@@ -148,30 +148,29 @@
 - [x] 4.2 Stack operations
 - [x] 4.3 Control flow
 
-### Phase 5: Built-in Functions (80%)
+### Phase 5: Built-in Functions (85%)
 - [x] 5.1 Core built-ins
 - [x] 5.2 Math functions (complete)
 - [x] 5.3 String functions
 - [x] 5.4 Array functions
 - [x] 5.5 Object functions
 - [ ] 5.6 Date/Time functions
-- [x] 5.7 Format functions (@base64, @uri, etc.)
-- [x] 5.8 Regex functions (test, match, capture, sub, gsub)
+- [x] 5.7 Format functions (@base64, @uri, @html, @csv, @tsv, @sh)
+- [x] 5.8 Regex functions (test, match, capture, scan, sub, gsub, splits)
 - [x] 5.9 Control flow functions (until, while, repeat)
 - [x] 5.10 Path functions (path, paths, pick, walk)
-- [x] 5.8 Regex functions (test, match, capture, sub, gsub)
 
-### Phase 6: Advanced Features (25%)
+### Phase 6: Advanced Features (30%)
 - [ ] 6.1 Module system
-- [ ] 6.2 User-defined functions (partial - local defs work)
+- [x] 6.2 User-defined functions (value parameters work, filter parameters partial)
 - [x] 6.3 Error handling (try-catch)
-- [ ] 6.4 Streaming parser
-- [x] 6.5 Regular expressions (basic support)
+- [ ] 6.4 Streaming parser (input/inputs not yet implemented)
+- [x] 6.5 Regular expressions (complete)
 
-### Phase 7: CLI & Polish (0%)
-- [ ] 7.1 Full CLI argument parsing
-- [ ] 7.2 Input modes (slurp, raw, null)
-- [ ] 7.3 Output modes (compact, raw, etc.)
+### Phase 7: CLI & Polish (60%)
+- [x] 7.1 Full CLI argument parsing (most flags work)
+- [x] 7.2 Input modes (slurp -s, raw -R, null -n)
+- [x] 7.3 Output modes (compact -c, raw -r, tab --tab)
 - [ ] 7.4 Performance optimization
 - [ ] 7.5 Documentation
 
