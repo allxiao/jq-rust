@@ -6,12 +6,13 @@
 pub mod jv;
 pub mod error;
 pub mod parser;
+pub mod vm;
 
 // Future modules (commented until implemented):
 // pub mod compiler;
-// pub mod vm;
 // pub mod builtins;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;
 pub use parser::{parse, Expr, ExprKind};
+pub use vm::{interpret, Interpreter, Context};

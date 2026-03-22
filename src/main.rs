@@ -6,7 +6,8 @@ use std::io::{self, BufRead, Write};
 use std::process;
 
 use clap::Parser;
-use jq_rust::jv::{print_jv, JvPrintOptions};
+use jq_rust::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
+use jq_rust::{parse, interpret, Jv};
 
 /// jq - commandline JSON processor
 #[derive(Parser, Debug)]
@@ -54,10 +55,6 @@ struct Args {
     #[arg(short = 'e', long = "exit-status")]
     exit_status: bool,
 
-    /// Only output values, no errors
-    // #[arg(short = 'q', long = "quiet")]
-    // quiet: bool,
-
     /// ASCII output (escape non-ASCII)
     #[arg(short = 'a', long = "ascii-output")]
     ascii_output: bool,
@@ -90,29 +87,82 @@ fn main() {
         ..Default::default()
     };
 
-    // For now, only support the identity filter "."
-    if args.filter != "." {
-        eprintln!("jq-rust: currently only the identity filter '.' is supported");
-        eprintln!("Filter parsing and execution coming soon!");
-        process::exit(1);
-    }
+    // Parse the filter expression
+    let expr = match parse(&args.filter) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("jq-rust: compile error: {}", e);
+            process::exit(3);
+        }
+    };
+
+    let mut exit_code = 0;
 
     let result = if args.null_input {
-        // No input, output null
-        let output = print_jv(&jq_rust::Jv::Null);
-        println!("{}", output);
-        Ok(())
+        // No input, run filter on null
+        run_filter(&expr, Jv::Null, &print_options, &args, &mut exit_code)
     } else {
-        process_input(&args, &print_options)
+        process_input(&args, &print_options, &expr, &mut exit_code)
     };
 
     if let Err(e) = result {
         eprintln!("jq-rust: {}", e);
-        process::exit(1);
+        process::exit(5);
+    }
+
+    if args.exit_status {
+        process::exit(exit_code);
     }
 }
 
-fn process_input(args: &Args, print_options: &JvPrintOptions) -> Result<(), String> {
+fn run_filter(
+    expr: &jq_rust::Expr,
+    input: Jv,
+    print_options: &JvPrintOptions,
+    args: &Args,
+    exit_code: &mut i32,
+) -> Result<(), String> {
+    let results = interpret(expr, input);
+
+    for result in results {
+        match result {
+            Ok(value) => {
+                // Track exit status
+                if args.exit_status {
+                    match &value {
+                        Jv::Bool(false) | Jv::Null => *exit_code = 1,
+                        _ => {}
+                    }
+                }
+
+                let output = print_jv_with_options(&value, print_options);
+
+                if args.join_output {
+                    print!("{}", output);
+                } else {
+                    println!("{}", output);
+                }
+            }
+            Err(e) => {
+                eprintln!("jq-rust: error: {}", e);
+                *exit_code = 5;
+            }
+        }
+    }
+
+    if args.join_output {
+        io::stdout().flush().ok();
+    }
+
+    Ok(())
+}
+
+fn process_input(
+    args: &Args,
+    print_options: &JvPrintOptions,
+    expr: &jq_rust::Expr,
+    exit_code: &mut i32,
+) -> Result<(), String> {
     let stdin = io::stdin();
 
     for file in &args.files {
@@ -132,20 +182,12 @@ fn process_input(args: &Args, print_options: &JvPrintOptions) -> Result<(), Stri
                 .map_err(|e| format!("read error: {}", e))?;
 
             if args.slurp {
-                // Single string output
-                let output = jq_rust::jv::print_jv_with_options(
-                    &jq_rust::Jv::string(&content),
-                    print_options,
-                );
-                println!("{}", output);
+                // Single string input
+                run_filter(expr, Jv::string(&content), print_options, args, exit_code)?;
             } else {
                 // Line by line
                 for line in content.lines() {
-                    let output = jq_rust::jv::print_jv_with_options(
-                        &jq_rust::Jv::string(line),
-                        print_options,
-                    );
-                    println!("{}", output);
+                    run_filter(expr, Jv::string(line), print_options, args, exit_code)?;
                 }
             }
         } else if args.slurp {
@@ -156,14 +198,13 @@ fn process_input(args: &Args, print_options: &JvPrintOptions) -> Result<(), Stri
                 .map_err(|e| format!("read error: {}", e))?;
 
             let mut values = Vec::new();
-            for result in jq_rust::jv::parse_json_stream(&content) {
+            for result in parse_json_stream(&content) {
                 let value = result.map_err(|e| format!("{}", e))?;
                 values.push(value);
             }
 
-            let arr = jq_rust::Jv::from_vec(values);
-            let output = jq_rust::jv::print_jv_with_options(&arr, print_options);
-            println!("{}", output);
+            let arr = Jv::from_vec(values);
+            run_filter(expr, arr, print_options, args, exit_code)?;
         } else {
             // Normal mode: process each JSON value
             let mut content = String::new();
@@ -171,21 +212,11 @@ fn process_input(args: &Args, print_options: &JvPrintOptions) -> Result<(), Stri
             reader.read_to_string(&mut content)
                 .map_err(|e| format!("read error: {}", e))?;
 
-            for result in jq_rust::jv::parse_json_stream(&content) {
+            for result in parse_json_stream(&content) {
                 let value = result.map_err(|e| format!("{}", e))?;
-                let output = jq_rust::jv::print_jv_with_options(&value, print_options);
-
-                if args.join_output {
-                    print!("{}", output);
-                } else {
-                    println!("{}", output);
-                }
+                run_filter(expr, value, print_options, args, exit_code)?;
             }
         }
-    }
-
-    if args.join_output {
-        io::stdout().flush().ok();
     }
 
     Ok(())

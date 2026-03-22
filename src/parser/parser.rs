@@ -47,7 +47,7 @@ impl<'a> Parser<'a> {
         self.parse_query()
     }
 
-    /// Parse a complete query (handles pipes and commas)
+    /// Parse a complete query (handles pipes, commas, and bindings)
     fn parse_query(&mut self) -> Result<Expr, ParseError> {
         // Check for function definition
         if self.check(&TokenKind::Def) {
@@ -65,6 +65,23 @@ impl<'a> Parser<'a> {
 
         let mut expr = self.parse_comma_expr()?;
 
+        // Handle "as" binding: expr as $var | body
+        if self.check(&TokenKind::As) {
+            self.advance();
+            let pattern = self.parse_pattern()?;
+            self.expect(&TokenKind::Pipe)?;
+            let body = self.parse_query()?;
+            let span = expr.span.merge(body.span);
+            return Ok(Expr::new(
+                ExprKind::Binding {
+                    expr: Box::new(expr),
+                    pattern,
+                    body: Box::new(body),
+                },
+                span,
+            ));
+        }
+
         // Handle pipe: expr | expr
         while self.check(&TokenKind::Pipe) {
             self.advance();
@@ -74,6 +91,21 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr)
+    }
+
+    /// Parse a pattern (for bindings)
+    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let span = self.current.span;
+        if let TokenKind::Binding(name) = &self.current.kind {
+            let name = name.clone();
+            self.advance();
+            Ok(Pattern {
+                kind: PatternKind::Binding(name),
+                span,
+            })
+        } else {
+            Err(self.error("expected binding pattern ($var)"))
+        }
     }
 
     /// Parse comma expression
