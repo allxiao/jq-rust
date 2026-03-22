@@ -66,6 +66,16 @@ fn main() {
         }
     };
 
+    // Set module search path to the modules directory relative to test file
+    use std::path::PathBuf;
+    let test_path = PathBuf::from(&test_file);
+    if let Some(parent) = test_path.parent() {
+        let modules_dir = parent.join("modules");
+        if modules_dir.exists() {
+            jq_rust::set_module_search_path(Some(modules_dir));
+        }
+    }
+
     let test_cases = parse_test_file(&content);
 
     let mut pass_count = 0;

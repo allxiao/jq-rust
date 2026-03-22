@@ -758,6 +758,77 @@ impl Interpreter {
                     match bind_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Ok(bind_val) => {
+                            // Check if this is a pattern alternative
+                            if let PatternKind::Alternative(first, second) = &pattern.kind {
+                                // For pattern alternatives, we need special handling:
+                                // 1. Try first pattern and evaluate body
+                                // 2. If body errors, try second pattern
+
+                                // Collect all variable names from both patterns for pre-binding
+                                let mut all_vars = std::collections::HashSet::new();
+                                Interpreter::collect_pattern_vars(first, &mut all_vars);
+                                Interpreter::collect_pattern_vars(second, &mut all_vars);
+
+                                // Create child context
+                                let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+
+                                // Pre-bind all variables to null
+                                for var in &all_vars {
+                                    child_ctx.borrow_mut().bind_value(var, Jv::Null);
+                                }
+
+                                // Try first pattern
+                                let mut inner = Interpreter { ctx: child_ctx.clone() };
+                                let first_bindings = inner.try_bind_pattern(first, &bind_val, &child_ctx);
+
+                                if let Ok(binds) = first_bindings {
+                                    // First pattern matched - commit bindings and try body
+                                    for (name, val) in binds {
+                                        child_ctx.borrow_mut().bind_value(&name, val);
+                                    }
+
+                                    // Evaluate body and collect results
+                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
+                                    let results: Vec<_> = inner.eval_expr(&body_expr, input_clone.clone(), child_ctx.clone()).collect();
+
+                                    // Check if all results are errors
+                                    let all_errors = !results.is_empty() && results.iter().all(|r| r.is_err());
+
+                                    if all_errors {
+                                        // Body errored - try second pattern
+                                        let child_ctx2 = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+
+                                        // Pre-bind all variables to null again
+                                        for var in &all_vars {
+                                            child_ctx2.borrow_mut().bind_value(var, Jv::Null);
+                                        }
+
+                                        // Bind second pattern
+                                        let mut inner2 = Interpreter { ctx: child_ctx2.clone() };
+                                        if let Err(e) = inner2.bind_pattern(second, &bind_val, &child_ctx2) {
+                                            return Box::new(std::iter::once(Err(e))) as EvalResult;
+                                        }
+
+                                        // Evaluate body with second pattern bindings
+                                        let mut inner2 = Interpreter { ctx: child_ctx2.clone() };
+                                        return inner2.eval_expr(&body_expr, input_clone.clone(), child_ctx2);
+                                    }
+
+                                    // Return the collected results
+                                    return Box::new(results.into_iter()) as EvalResult;
+                                } else {
+                                    // First pattern failed - try second pattern
+                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
+                                    if let Err(e) = inner.bind_pattern(second, &bind_val, &child_ctx) {
+                                        return Box::new(std::iter::once(Err(e))) as EvalResult;
+                                    }
+
+                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
+                                    return inner.eval_expr(&body_expr, input_clone.clone(), child_ctx);
+                                }
+                            }
+
+                            // Regular pattern (non-alternative)
                             // Create child context with bindings from pattern
                             let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
 

@@ -549,10 +549,14 @@
   - Single quotes in object keys now reports "Invalid string literal; expected \", but got '..."
   - Error messages match jq's exact format including line/column numbers
 - [x] **All jq.test cases now pass: 527/527 (100%)**
+- [x] Fixed `?//` pattern alternative to catch errors from body expression
+  - When first pattern matches but body errors, now falls back to alternative pattern
+  - Matches jq semantics: `.[] as [$a] ?// [$b] | error_body` tries alternative on error
+- [x] Fixed run-tests tool to set module search path
 
 ## Known Limitations
 
-None for jq.test suite - all 527 tests pass!
+1. **Lookahead/lookbehind regex** - The Rust `regex` crate doesn't support lookahead (`(?=...)`) or lookbehind (`(?<=...)`) assertions. This affects 1 test in onig.test.
 
 ## Phase Progress
 
@@ -607,13 +611,13 @@ None for jq.test suite - all 527 tests pass!
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 527           | 527         | 100%     |
-| man.test   | 229           | 230         | 99.6%    |
+| man.test   | 230           | 230         | 100%     |
 | onig.test  | 46            | 47          | 97.9%    |
 | manonig.test | 19          | 19          | 100%     |
 | base64.test| 10            | 10          | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | optional.test | 2          | 2           | 100%     |
-| **Total**  | **853**       | **855**     | **99.8%**|
+| **Total**  | **854**       | **855**     | **99.9%**|
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project
