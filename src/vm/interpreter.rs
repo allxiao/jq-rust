@@ -526,6 +526,122 @@ impl Interpreter {
                 }))
             }
 
+            ExprKind::Assign { target, value } => {
+                // Evaluate the value
+                let value_expr = value.clone();
+                let target_expr = target.clone();
+                let ctx_clone = ctx.clone();
+
+                let mut this = Interpreter { ctx: ctx.clone() };
+                let value_results: Vec<_> = this.eval_expr(&value_expr, input.clone(), ctx_clone.clone()).collect();
+
+                Box::new(value_results.into_iter().flat_map(move |value_result| {
+                    match value_result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(new_value) => {
+                            // Apply the assignment by computing the path and setting
+                            let mut path_parts: Vec<Jv> = Vec::new();
+                            let modified = Self::apply_assignment(
+                                input.clone(),
+                                &target_expr,
+                                new_value,
+                                &mut path_parts,
+                                ctx_clone.clone(),
+                            );
+                            match modified {
+                                Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
+                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                            }
+                        }
+                    }
+                }))
+            }
+
+            ExprKind::Update { target, value } => {
+                // expr |= f means: evaluate f with current value at target, then set result back
+                let target_expr = target.clone();
+                let value_expr = value.clone();
+                let ctx_clone = ctx.clone();
+
+                // Get current value at target
+                let mut get_interp = Interpreter { ctx: ctx.clone() };
+                let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
+
+                Box::new(current_results.into_iter().flat_map(move |current_result| {
+                    match current_result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(current_val) => {
+                            // Pipe current value through the filter
+                            let mut val_interp = Interpreter { ctx: ctx_clone.clone() };
+                            let new_value = match val_interp.eval_expr(&value_expr, current_val, ctx_clone.clone()).next() {
+                                Some(Ok(v)) => v,
+                                Some(Err(e)) => return Box::new(std::iter::once(Err(e))) as EvalResult,
+                                None => return Box::new(std::iter::empty()) as EvalResult,
+                            };
+
+                            let mut path_parts: Vec<Jv> = Vec::new();
+                            let modified = Self::apply_assignment(
+                                input.clone(),
+                                &target_expr,
+                                new_value,
+                                &mut path_parts,
+                                ctx_clone.clone(),
+                            );
+                            match modified {
+                                Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
+                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                            }
+                        }
+                    }
+                }))
+            }
+
+            ExprKind::UpdateOp { op, target, value } => {
+                // expr += f means: evaluate f and apply arithmetic op to current value
+                let op = *op;
+                let target_expr = target.clone();
+                let value_expr = value.clone();
+                let ctx_clone = ctx.clone();
+
+                // Get current value at target
+                let mut get_interp = Interpreter { ctx: ctx.clone() };
+                let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
+
+                Box::new(current_results.into_iter().flat_map(move |current_result| {
+                    match current_result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(current_val) => {
+                            // Evaluate the right-hand value
+                            let mut val_interp = Interpreter { ctx: ctx_clone.clone() };
+                            let right_val = match val_interp.eval_expr(&value_expr, input.clone(), ctx_clone.clone()).next() {
+                                Some(Ok(v)) => v,
+                                Some(Err(e)) => return Box::new(std::iter::once(Err(e))) as EvalResult,
+                                None => return Box::new(std::iter::empty()) as EvalResult,
+                            };
+
+                            // Apply the operation
+                            let new_value = match eval_binary_op(op, &current_val, &right_val) {
+                                Ok(v) => v,
+                                Err(e) => return Box::new(std::iter::once(Err(e))) as EvalResult,
+                            };
+
+                            let mut path_parts: Vec<Jv> = Vec::new();
+                            let modified = Self::apply_assignment(
+                                input.clone(),
+                                &target_expr,
+                                new_value,
+                                &mut path_parts,
+                                ctx_clone.clone(),
+                            );
+                            match modified {
+                                Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
+                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                            }
+                        }
+                    }
+                }))
+            }
+
             _ => {
                 Box::new(std::iter::once(Err(format!("expression type not yet implemented: {:?}", expr.kind))))
             }
@@ -1085,6 +1201,139 @@ impl Interpreter {
         }
 
         Box::new(std::iter::once(Ok(Jv::string(result))))
+    }
+
+    /// Apply an assignment by traversing the target path and setting the value
+    fn apply_assignment(
+        current: Jv,
+        target: &Expr,
+        value: Jv,
+        _path: &mut Vec<Jv>,
+        ctx: Rc<RefCell<Context>>,
+    ) -> Result<Jv, String> {
+        use crate::jv::JvArray;
+
+        match &target.kind {
+            ExprKind::Identity => {
+                // Direct assignment to input
+                Ok(value)
+            }
+            ExprKind::Field(name) => {
+                // .foo = value
+                match current {
+                    Jv::Object(mut obj) => {
+                        obj.set(name, value);
+                        Ok(Jv::Object(obj))
+                    }
+                    Jv::Null => {
+                        let mut obj = JvObject::new();
+                        obj.set(name, value);
+                        Ok(Jv::Object(obj))
+                    }
+                    _ => Err(format!("Cannot index {} with string \"{}\"", current.type_name(), name)),
+                }
+            }
+            ExprKind::Index { expr: base, index, optional: _ } => {
+                // For nested assignments like .foo.bar = value or .foo[0] = value
+                // We need to:
+                // 1. Get the current value at base
+                // 2. Modify it with the assignment
+                // 3. Set the modified value back
+
+                // Evaluate the index
+                let mut idx_interp = Interpreter { ctx: ctx.clone() };
+                let idx_val = match idx_interp.eval_expr(index, current.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Err(e),
+                    None => return Err("index evaluation produced no value".to_string()),
+                };
+
+                match &base.kind {
+                    ExprKind::Identity => {
+                        // Direct index on input: .[idx] = value
+                        match &idx_val {
+                            Jv::String(s) => {
+                                match current {
+                                    Jv::Object(mut obj) => {
+                                        obj.set(s.as_str(), value);
+                                        Ok(Jv::Object(obj))
+                                    }
+                                    Jv::Null => {
+                                        let mut obj = JvObject::new();
+                                        obj.set(s.as_str(), value);
+                                        Ok(Jv::Object(obj))
+                                    }
+                                    _ => Err(format!("Cannot index {} with string", current.type_name())),
+                                }
+                            }
+                            Jv::Number(n) => {
+                                if let Some(idx) = n.as_i64() {
+                                    match current {
+                                        Jv::Array(mut arr) => {
+                                            let len = arr.len() as i64;
+                                            let actual_idx = if idx < 0 { len + idx } else { idx };
+                                            if actual_idx < 0 {
+                                                return Err("Out of bounds negative array index".to_string());
+                                            }
+                                            arr.set(actual_idx, value);
+                                            Ok(Jv::Array(arr))
+                                        }
+                                        Jv::Null => {
+                                            if idx < 0 {
+                                                return Err("Out of bounds negative array index".to_string());
+                                            }
+                                            let mut arr = JvArray::new();
+                                            arr.set(idx, value);
+                                            Ok(Jv::Array(arr))
+                                        }
+                                        _ => Err(format!("Cannot index {} with number", current.type_name())),
+                                    }
+                                } else {
+                                    Err("Array index must be integer".to_string())
+                                }
+                            }
+                            _ => Err(format!("Cannot use {} as index", idx_val.type_name())),
+                        }
+                    }
+                    _ => {
+                        // Nested: get base value, apply assignment, set back
+                        let mut base_interp = Interpreter { ctx: ctx.clone() };
+                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                            Some(Ok(v)) => v,
+                            Some(Err(e)) => return Err(e),
+                            None => Jv::Null,
+                        };
+
+                        // Apply inner assignment
+                        let inner_target = Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, target.span)),
+                                index: index.clone(),
+                                optional: false,
+                            },
+                            target.span,
+                        );
+                        let modified_base = Self::apply_assignment(base_val, &inner_target, value, _path, ctx.clone())?;
+
+                        // Now set modified base back to parent
+                        Self::apply_assignment(current, base, modified_base, _path, ctx)
+                    }
+                }
+            }
+            ExprKind::Pipe(left, right) => {
+                // For piped paths like .foo | .bar = value
+                let mut left_interp = Interpreter { ctx: ctx.clone() };
+                let left_val = match left_interp.eval_expr(left, current.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Err(e),
+                    None => return Err("pipe left side produced no value".to_string()),
+                };
+
+                let modified = Self::apply_assignment(left_val, right, value, _path, ctx.clone())?;
+                Self::apply_assignment(current, left, modified, _path, ctx)
+            }
+            _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
+        }
     }
 }
 
