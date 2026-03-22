@@ -127,7 +127,7 @@ impl Interpreter {
                                                 None
                                             } else {
                                                 let idx_desc = match &idx_val {
-                                                    Jv::String(s) => format!("string \"{}\"", s.as_str()),
+                                                    Jv::String(s) => format!("string (\"{}\")", s.as_str()),
                                                     Jv::Number(n) => format!("number ({})", n),
                                                     _ => idx_val.type_name().to_string(),
                                                 };
@@ -159,6 +159,41 @@ impl Interpreter {
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let base_results = this.eval_expr(&base_expr, input, ctx_clone.clone());
 
+                // Helper to convert a number to i64 using floor (for start index)
+                fn number_to_start_index(v: &Jv) -> Option<i64> {
+                    match v {
+                        Jv::Number(n) => {
+                            // NaN means "no start" - start from beginning (index 0)
+                            if n.is_nan() {
+                                None
+                            } else if let Some(i) = n.as_i64() {
+                                Some(i)
+                            } else {
+                                Some(n.as_f64().floor() as i64)
+                            }
+                        }
+                        _ => None,
+                    }
+                }
+
+                // Helper to convert a number to i64 using ceil (for end index)
+                fn number_to_end_index(v: &Jv) -> Option<i64> {
+                    match v {
+                        Jv::Number(n) => {
+                            // Use ceil for end index, but exact integers stay as is
+                            // NaN means "no end" - slice to end of array
+                            if n.is_nan() {
+                                None
+                            } else if let Some(i) = n.as_i64() {
+                                Some(i)
+                            } else {
+                                Some(n.as_f64().ceil() as i64)
+                            }
+                        }
+                        _ => None,
+                    }
+                }
+
                 Box::new(base_results.flat_map(move |base_result| {
                     match base_result {
                         Err(e) if !optional => Box::new(std::iter::once(Err(e))) as EvalResult,
@@ -169,7 +204,7 @@ impl Interpreter {
                                 let mut inner = Interpreter { ctx: ctx_clone.clone() };
                                 let mut results = inner.eval_expr(s, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
-                                    Some(Ok(v)) => v.as_i64(),
+                                    Some(Ok(v)) => number_to_start_index(&v),
                                     _ => None,
                                 }
                             } else {
@@ -181,7 +216,7 @@ impl Interpreter {
                                 let mut inner = Interpreter { ctx: ctx_clone.clone() };
                                 let mut results = inner.eval_expr(e, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
-                                    Some(Ok(v)) => v.as_i64(),
+                                    Some(Ok(v)) => number_to_end_index(&v),
                                     _ => None,
                                 }
                             } else {
@@ -2710,40 +2745,52 @@ impl Interpreter {
 
     fn eval_walk(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         // walk(f) - recursively apply f to all values (depth-first, bottom-up)
-        fn walk_value(interp: &mut Interpreter, filter: &Expr, value: Jv, ctx: Rc<RefCell<Context>>) -> Result<Jv, String> {
+        // f can be a generator producing multiple outputs
+        // If f produces no output for a value, that value is omitted
+        fn walk_value(interp: &mut Interpreter, filter: &Expr, value: Jv, ctx: Rc<RefCell<Context>>) -> Vec<Result<Jv, String>> {
             // First, recursively walk children
             let walked = match &value {
                 Jv::Array(arr) => {
                     let mut new_arr = Vec::new();
                     for item in arr.iter() {
-                        new_arr.push(walk_value(interp, filter, item, ctx.clone())?);
+                        // For arrays, collect all outputs from walking each item
+                        let results = walk_value(interp, filter, item, ctx.clone());
+                        for result in results {
+                            match result {
+                                Ok(v) => new_arr.push(v),
+                                Err(e) => return vec![Err(e)],
+                            }
+                        }
                     }
                     Jv::from_vec(new_arr)
                 }
                 Jv::Object(obj) => {
                     let mut new_obj = crate::jv::JvObject::new();
                     for (k, v) in obj.iter() {
-                        let walked_v = walk_value(interp, filter, v, ctx.clone())?;
-                        new_obj.set(&k, walked_v);
+                        let results = walk_value(interp, filter, v, ctx.clone());
+                        // Only include first result for objects (maintaining single value per key)
+                        // If no results, omit the key
+                        if let Some(first) = results.into_iter().next() {
+                            match first {
+                                Ok(walked_v) => new_obj.set(&k, walked_v),
+                                Err(e) => return vec![Err(e)],
+                            }
+                        }
+                        // If empty results, key is omitted
                     }
                     Jv::Object(new_obj)
                 }
                 _ => value.clone(),
             };
 
-            // Then apply filter to the walked value
+            // Then apply filter to the walked value - collect ALL outputs from the generator
             let mut filter_interp = Interpreter { ctx: ctx.clone() };
-            match filter_interp.eval_expr(filter, walked, ctx).next() {
-                Some(Ok(v)) => Ok(v),
-                Some(Err(e)) => Err(e),
-                None => Ok(Jv::Null),
-            }
+            filter_interp.eval_expr(filter, walked, ctx).collect()
         }
 
-        match walk_value(self, filter, input, ctx) {
-            Ok(v) => Box::new(std::iter::once(Ok(v))),
-            Err(e) => Box::new(std::iter::once(Err(e))),
-        }
+        // Collect all results from walk_value
+        let results = walk_value(self, filter, input, ctx);
+        Box::new(results.into_iter())
     }
 
     fn eval_env(&mut self, _input: Jv) -> EvalResult {
@@ -3562,29 +3609,35 @@ impl Interpreter {
                                 }
                             }
                             Jv::Number(n) => {
-                                if let Some(idx) = n.as_i64() {
-                                    match current {
-                                        Jv::Array(mut arr) => {
-                                            let len = arr.len() as i64;
-                                            let actual_idx = if idx < 0 { len + idx } else { idx };
-                                            if actual_idx < 0 {
-                                                return Err("Out of bounds negative array index".to_string());
-                                            }
-                                            arr.set(actual_idx, value)?;
-                                            Ok(Jv::Array(arr))
-                                        }
-                                        Jv::Null => {
-                                            if idx < 0 {
-                                                return Err("Out of bounds negative array index".to_string());
-                                            }
-                                            let mut arr = JvArray::new();
-                                            arr.set(idx, value)?;
-                                            Ok(Jv::Array(arr))
-                                        }
-                                        _ => Err(format!("Cannot index {} with number", current.type_name())),
-                                    }
+                                // NaN index in assignment is an error
+                                if n.is_nan() {
+                                    return Err("Cannot set array element at NaN index".to_string());
+                                }
+                                // jq truncates float indices using floor
+                                let idx = if let Some(i) = n.as_i64() {
+                                    i
                                 } else {
-                                    Err("Array index must be integer".to_string())
+                                    n.as_f64().floor() as i64
+                                };
+                                match current {
+                                    Jv::Array(mut arr) => {
+                                        let len = arr.len() as i64;
+                                        let actual_idx = if idx < 0 { len + idx } else { idx };
+                                        if actual_idx < 0 {
+                                            return Err("Out of bounds negative array index".to_string());
+                                        }
+                                        arr.set(actual_idx, value)?;
+                                        Ok(Jv::Array(arr))
+                                    }
+                                    Jv::Null => {
+                                        if idx < 0 {
+                                            return Err("Out of bounds negative array index".to_string());
+                                        }
+                                        let mut arr = JvArray::new();
+                                        arr.set(idx, value)?;
+                                        Ok(Jv::Array(arr))
+                                    }
+                                    _ => Err(format!("Cannot index {} with number", current.type_name())),
                                 }
                             }
                             _ => Err(format!("Cannot use {} as index", idx_val.type_name())),
@@ -3619,10 +3672,28 @@ impl Interpreter {
                 // .[start:end] = value - slice assignment
                 let mut interp = Interpreter { ctx: ctx.clone() };
 
+                // Helper to convert number to i64, truncating floats (floor for start, ceil for end)
+                fn number_to_start(n: &crate::jv::JvNumber) -> i64 {
+                    if let Some(i) = n.as_i64() {
+                        i
+                    } else {
+                        n.as_f64().floor() as i64
+                    }
+                }
+                fn number_to_end(n: &crate::jv::JvNumber) -> Option<i64> {
+                    if n.is_nan() {
+                        None
+                    } else if let Some(i) = n.as_i64() {
+                        Some(i)
+                    } else {
+                        Some(n.as_f64().ceil() as i64)
+                    }
+                }
+
                 // Evaluate start and end indices
                 let start_val = if let Some(start_expr) = start {
                     match interp.eval_expr(start_expr, current.clone(), ctx.clone()).next() {
-                        Some(Ok(Jv::Number(n))) => n.as_i64().unwrap_or(0),
+                        Some(Ok(Jv::Number(n))) => number_to_start(&n),
                         Some(Err(e)) => return Err(e),
                         _ => 0,
                     }
@@ -3632,7 +3703,7 @@ impl Interpreter {
 
                 let end_val = if let Some(end_expr) = end {
                     match interp.eval_expr(end_expr, current.clone(), ctx.clone()).next() {
-                        Some(Ok(Jv::Number(n))) => n.as_i64(),
+                        Some(Ok(Jv::Number(n))) => number_to_end(&n),
                         Some(Err(e)) => return Err(e),
                         _ => None,
                     }
@@ -3681,30 +3752,9 @@ impl Interpreter {
 
                                 Ok(Jv::from_vec(result))
                             }
-                            Jv::String(s) => {
-                                // String slice assignment
-                                let chars: Vec<char> = s.as_str().chars().collect();
-                                let len = chars.len();
-                                let start_idx = if start_val < 0 {
-                                    (len as i64 + start_val).max(0) as usize
-                                } else {
-                                    (start_val as usize).min(len)
-                                };
-                                let end_idx = match end_val {
-                                    Some(e) if e < 0 => (len as i64 + e).max(0) as usize,
-                                    Some(e) => (e as usize).min(len),
-                                    None => len,
-                                };
-
-                                let replacement = match &value {
-                                    Jv::String(s) => s.as_str().to_string(),
-                                    _ => return Err("Cannot assign non-string to string slice".to_string()),
-                                };
-
-                                let mut result: String = chars[..start_idx.min(len)].iter().collect();
-                                result.push_str(&replacement);
-                                result.extend(chars[end_idx.min(len)..].iter());
-                                Ok(Jv::string(result))
+                            Jv::String(_) => {
+                                // jq does not support string slice assignment
+                                Err("Cannot update string slices".to_string())
                             }
                             _ => Err(format!("Cannot slice {}", current.type_name())),
                         }
@@ -3814,20 +3864,21 @@ impl Interpreter {
                             Ok(Jv::Object(obj))
                         }
                         Jv::Number(n) => {
-                            // Array index
-                            if let Some(idx) = n.as_i64() {
-                                let mut arr = match current {
-                                    Jv::Array(a) => a,
-                                    Jv::Null => JvArray::new(),
-                                    _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
-                                };
-                                let child = arr.get(idx).unwrap_or(Jv::Null);
-                                let new_child = set_path(child, rest, value)?;
-                                arr.set(idx, new_child).map_err(|e| e)?;
-                                Ok(Jv::Array(arr))
+                            // Array index - jq truncates float indices using floor
+                            let idx = if let Some(i) = n.as_i64() {
+                                i
                             } else {
-                                Err("Array index must be integer".to_string())
-                            }
+                                n.as_f64().floor() as i64
+                            };
+                            let mut arr = match current {
+                                Jv::Array(a) => a,
+                                Jv::Null => JvArray::new(),
+                                _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
+                            };
+                            let child = arr.get(idx).unwrap_or(Jv::Null);
+                            let new_child = set_path(child, rest, value)?;
+                            arr.set(idx, new_child).map_err(|e| e)?;
+                            Ok(Jv::Array(arr))
                         }
                         _ => Err(format!("Cannot index with {}", key.type_name())),
                     }

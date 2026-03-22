@@ -259,13 +259,17 @@ impl Jv {
     pub fn index(&self, idx: &Jv) -> Jv {
         match (self, idx) {
             (Jv::Array(arr), Jv::Number(n)) => {
-                if let Some(i) = n.as_i64() {
-                    arr.get(i).unwrap_or_else(Jv::null)
-                } else {
-                    Jv::invalid_with_error(JqError::Type(
-                        "array index must be integer".to_string()
-                    ))
+                // NaN index returns null
+                if n.is_nan() {
+                    return Jv::null();
                 }
+                // jq truncates float indices to integers using floor
+                let i = if let Some(i) = n.as_i64() {
+                    i
+                } else {
+                    n.as_f64().floor() as i64
+                };
+                arr.get(i).unwrap_or_else(Jv::null)
             }
             (Jv::Object(obj), Jv::String(s)) => {
                 obj.get(s.as_str()).unwrap_or_else(Jv::null)

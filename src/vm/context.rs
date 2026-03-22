@@ -853,9 +853,11 @@ fn builtin_sqrt(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 }
 
 fn builtin_fabs(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    match input.as_number() {
-        Some(n) => ok(Jv::Number(n.abs())),
-        None => err(format!("{} has no absolute value", input.type_name())),
+    match &input {
+        Jv::Number(n) => ok(Jv::Number(n.abs())),
+        // jq returns strings unchanged for abs
+        Jv::String(_) => ok(input),
+        _ => err(format!("{} has no absolute value", input.type_name())),
     }
 }
 
@@ -1233,7 +1235,8 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     let mut arr = match current {
                         Jv::Array(a) => a,
                         Jv::Null => crate::jv::JvArray::new(),
-                        _ => return Err("cannot index non-array with number".to_string()),
+                        Jv::Object(_) => return Err("Cannot index object with number".to_string()),
+                        _ => return Err(format!("Cannot index {} with number", current.type_name())),
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);

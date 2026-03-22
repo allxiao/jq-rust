@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~80%
+**Overall Progress**: ~87%
 
 ## Session Log
 
@@ -294,6 +294,23 @@
 - [x] Fixed implode to handle invalid codepoints with replacement character
 - [x] Fixed indexing error messages to include string values
 - [x] Integration tests: 439/527 jq.test cases passing (83%)
+
+### Session 17 (2026-03-21)
+- [x] Fixed slice with float indices to use floor for start, ceil for end
+- [x] Fixed array indexing with float indices (truncates using floor)
+- [x] Fixed array indexing with NaN (returns null instead of error)
+- [x] Fixed NaN array assignment (returns error)
+- [x] Fixed string slice assignment (returns error as jq doesn't support it)
+- [x] Fixed slice with NaN end index (treats as "no end", slices to end)
+- [x] Fixed `abs` to return strings unchanged (jq behavior)
+- [x] Added `elif` support in conditionals
+- [x] Fixed error message format for string indices (use parentheses)
+- [x] Fixed `walk()` to support generator filters
+  - `[walk(.,1)]` now produces multiple outputs from the generator
+  - `walk(select(cond))` now omits values when filter produces no output
+- [x] Fixed slice assignment with float indices
+- [x] Fixed setpath error message to match jq format
+- [x] Integration tests: 457/527 jq.test cases passing (86.7%)
 
 ## Phase Progress
 

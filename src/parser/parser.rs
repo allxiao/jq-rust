@@ -1112,8 +1112,74 @@ impl<'a> Parser<'a> {
         let then_branch = Box::new(self.parse_query()?);
 
         let else_branch = if self.check(&TokenKind::Elif) {
-            // elif becomes nested if
-            Some(Box::new(self.parse_if()?))
+            // elif becomes nested if - advance past elif then parse as if
+            self.advance(); // consume elif
+            let nested_condition = Box::new(self.parse_query()?);
+            self.expect(&TokenKind::Then)?;
+            let nested_then = Box::new(self.parse_query()?);
+
+            // Parse any further elif/else/end
+            let nested_else = if self.check(&TokenKind::Elif) {
+                // Recursively handle another elif
+                self.advance();
+                let cond = Box::new(self.parse_query()?);
+                self.expect(&TokenKind::Then)?;
+                let then_br = Box::new(self.parse_query()?);
+                // Use a helper function to parse the remaining elif chain
+                fn parse_elif_chain(parser: &mut Parser) -> Result<Option<Box<Expr>>, ParseError> {
+                    if parser.check(&TokenKind::Elif) {
+                        parser.advance();
+                        let cond = Box::new(parser.parse_query()?);
+                        parser.expect(&TokenKind::Then)?;
+                        let then_br = Box::new(parser.parse_query()?);
+                        let else_br = parse_elif_chain(parser)?;
+                        let start = cond.span;
+                        Ok(Some(Box::new(Expr::new(
+                            ExprKind::Conditional {
+                                condition: cond,
+                                then_branch: then_br,
+                                else_branch: else_br,
+                            },
+                            start,
+                        ))))
+                    } else if parser.check(&TokenKind::Else) {
+                        parser.advance();
+                        let branch = parser.parse_query()?;
+                        parser.expect(&TokenKind::End)?;
+                        Ok(Some(Box::new(branch)))
+                    } else {
+                        parser.expect(&TokenKind::End)?;
+                        Ok(None)
+                    }
+                }
+                let inner_else = parse_elif_chain(self)?;
+                let inner_start = cond.span;
+                Some(Box::new(Expr::new(
+                    ExprKind::Conditional {
+                        condition: cond,
+                        then_branch: then_br,
+                        else_branch: inner_else,
+                    },
+                    inner_start,
+                )))
+            } else if self.check(&TokenKind::Else) {
+                self.advance();
+                let branch = self.parse_query()?;
+                self.expect(&TokenKind::End)?;
+                Some(Box::new(branch))
+            } else {
+                self.expect(&TokenKind::End)?;
+                None
+            };
+            let nested_start = nested_condition.span;
+            Some(Box::new(Expr::new(
+                ExprKind::Conditional {
+                    condition: nested_condition,
+                    then_branch: nested_then,
+                    else_branch: nested_else,
+                },
+                nested_start,
+            )))
         } else if self.check(&TokenKind::Else) {
             self.advance();
             let branch = self.parse_query()?;
