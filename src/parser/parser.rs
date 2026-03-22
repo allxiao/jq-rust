@@ -1047,6 +1047,13 @@ impl<'a> Parser<'a> {
                     });
                 }
             }
+            _ if self.current.kind.as_ident_string().is_some() => {
+                // Keywords can be used as object keys (e.g., {if: 0, and: 1})
+                let name = self.current.kind.as_ident_string().unwrap().to_string();
+                self.advance();
+                // Keywords always need a colon (no shorthand for keywords)
+                ObjectKey::Ident(name)
+            }
             TokenKind::StringStart => {
                 let s = self.parse_string()?;
                 if let ExprKind::Literal(Literal::String(ref key_str)) = s.kind {
@@ -1107,6 +1114,16 @@ impl<'a> Parser<'a> {
                 let value = Box::new(Expr::new(ExprKind::Variable(name.clone()), start));
                 return Ok(ObjectEntry {
                     key: ObjectKey::Shorthand(name),
+                    value,
+                    span: start,
+                });
+            }
+            TokenKind::Loc => {
+                // $__loc__ means {__loc__: $__loc__}
+                self.advance();
+                let value = Box::new(Expr::new(ExprKind::Loc, start));
+                return Ok(ObjectEntry {
+                    key: ObjectKey::Shorthand("__loc__".to_string()),
                     value,
                     span: start,
                 });
