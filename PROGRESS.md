@@ -138,6 +138,19 @@
 - [x] Integration tests: 224/527 jq.test cases passing (42%)
 - [x] Tests require RUST_MIN_STACK=16777216 for deep recursion tests
 
+### Session 9 (2026-03-20)
+- [x] Added destructuring pattern support:
+  - Array patterns: `.[] as [$a, $b] | ...`
+  - Object patterns: `.[] as {foo: $a, $b} | ...`
+  - Works in `as`, `reduce`, and `foreach` expressions
+- [x] Added `skip(n; expr)` function
+- [x] Improved `limit()` to error on negative count
+- [x] Added object shorthand for strings: `{"foo"}` means `{"foo": .foo}`
+- [x] Fixed interpolated strings in object shorthand
+- [x] Normalized JSON comparison in tests (whitespace-insensitive)
+- [x] All 95 unit tests passing
+- [x] Integration tests: 295/527 jq.test cases passing (56%)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)

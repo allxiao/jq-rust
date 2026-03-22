@@ -701,17 +701,32 @@ impl<'a> Parser<'a> {
                 Ok(Expr::new(ExprKind::Loc, token.span))
             }
 
-            // Format: @base64, etc.
+            // Format: @base64, @html "template", etc.
             TokenKind::Format(fmt) => {
                 let fmt = fmt.clone();
+                let start = token.span;
                 self.advance();
-                Ok(Expr::new(
-                    ExprKind::Format {
-                        format: fmt,
-                        expr: None,
-                    },
-                    token.span,
-                ))
+
+                // Check if followed by a string template
+                if self.check(&TokenKind::StringStart) {
+                    let template = self.parse_string()?;
+                    let span = start.merge(template.span);
+                    Ok(Expr::new(
+                        ExprKind::Format {
+                            format: fmt,
+                            expr: Some(Box::new(template)),
+                        },
+                        span,
+                    ))
+                } else {
+                    Ok(Expr::new(
+                        ExprKind::Format {
+                            format: fmt,
+                            expr: None,
+                        },
+                        start,
+                    ))
+                }
             }
 
             // Parenthesized expression
