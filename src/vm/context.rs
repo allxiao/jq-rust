@@ -118,6 +118,7 @@ impl BuiltinRegistry {
         self.register("startswith", 1, builtin_startswith);
         self.register("endswith", 1, builtin_endswith);
         self.register("split", 1, builtin_split);
+        self.register("split", 2, builtin_split2);
         self.register("join", 1, builtin_join);
         self.register("implode", 0, builtin_implode);
         self.register("explode", 0, builtin_explode);
@@ -143,6 +144,7 @@ impl BuiltinRegistry {
         self.register("match", 1, builtin_match);
         self.register("capture", 1, builtin_capture);
         self.register("splits", 1, builtin_splits);
+        self.register("splits", 2, builtin_splits2);
         self.register("sub", 2, builtin_sub);
         self.register("gsub", 2, builtin_gsub);
         self.register("scan", 1, builtin_scan);
@@ -1058,6 +1060,41 @@ fn builtin_split(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
+fn builtin_split2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // split/2 with regex pattern and flags
+    let pattern = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("split requires string pattern".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex with flags
+    let pattern_with_flags = if flags.contains('i') {
+        format!("(?i){}", pattern)
+    } else {
+        pattern
+    };
+
+    match &input {
+        Jv::String(s) => {
+            match regex::Regex::new(&pattern_with_flags) {
+                Ok(re) => {
+                    let parts: Vec<Jv> = re.split(s.as_str())
+                        .map(|p| Jv::string(p))
+                        .collect();
+                    ok(Jv::from_vec(parts))
+                }
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("split requires string input".to_string()),
+    }
+}
+
 fn builtin_join(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::Array(arr), Some(Jv::String(sep))) => {
@@ -1939,9 +1976,57 @@ fn builtin_splits(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
         _ => return err("splits requires string pattern".to_string()),
     };
 
+    // Check for flags argument (2-arity version)
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex with flags
+    let pattern_with_flags = if flags.contains('i') {
+        format!("(?i){}", pattern)
+    } else {
+        pattern
+    };
+
     match &input {
         Jv::String(s) => {
-            match regex::Regex::new(&pattern) {
+            match regex::Regex::new(&pattern_with_flags) {
+                Ok(re) => {
+                    let parts: Vec<Jv> = re.split(s.as_str())
+                        .map(|p| Jv::string(p))
+                        .collect();
+                    Box::new(parts.into_iter().map(Ok))
+                }
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("splits requires string input".to_string()),
+    }
+}
+
+fn builtin_splits2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // This is the same as builtin_splits but with explicit 2-arity
+    let pattern = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("splits requires string pattern".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex with flags
+    let pattern_with_flags = if flags.contains('i') {
+        format!("(?i){}", pattern)
+    } else {
+        pattern
+    };
+
+    match &input {
+        Jv::String(s) => {
+            match regex::Regex::new(&pattern_with_flags) {
                 Ok(re) => {
                     let parts: Vec<Jv> = re.split(s.as_str())
                         .map(|p| Jv::string(p))
