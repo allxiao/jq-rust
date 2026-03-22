@@ -189,7 +189,8 @@
 - [x] Improved error messages to include value in "Cannot iterate over" errors
 - [x] Fixed error/catch to preserve JSON values through error propagation
   - `try (["b"] | error) catch .` now returns `["b"]` instead of `"[\"b\"]"`
-- [x] Integration tests: 336/527 jq.test cases passing (64%)
+- [x] Fixed @html to use `&apos;` instead of `&#39;` for single quote
+- [x] Integration tests: 337/527 jq.test cases passing (64%)
 
 ## Phase Progress
 

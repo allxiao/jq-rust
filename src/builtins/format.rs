@@ -68,7 +68,7 @@ pub fn html_escape(s: &str) -> String {
             '<' => result.push_str("&lt;"),
             '>' => result.push_str("&gt;"),
             '"' => result.push_str("&quot;"),
-            '\'' => result.push_str("&#39;"),
+            '\'' => result.push_str("&apos;"),
             _ => result.push(c),
         }
     }
