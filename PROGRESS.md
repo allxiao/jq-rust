@@ -364,6 +364,10 @@
   - `nan | isnan` now returns true
 - [x] Fixed large integer precision (>2^53) to match f64 representation
   - Numbers exceeding f64's exact representation limit now properly lose precision
+- [x] Fixed test runner to skip uncaught errors in output comparison
+  - jq sends uncaught errors to stderr, not stdout
+  - Only caught errors (via try-catch) become output values
+- [x] Cleaned up compiler warnings
 
 ## Known Limitations
 
