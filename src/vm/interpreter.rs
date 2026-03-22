@@ -1584,67 +1584,81 @@ impl Interpreter {
     fn eval_foreach(&mut self, iter_expr: &Expr, pattern: &Pattern, init_expr: &Expr, update_expr: &Expr, extract_expr: Option<&Box<Expr>>, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         let ctx_clone = ctx.clone();
 
-        // Evaluate initial value
+        // Evaluate initial values - foreach iterates over ALL init values
         let mut init_inner = Interpreter { ctx: ctx_clone.clone() };
-        let mut state = match init_inner.eval_expr(init_expr, input.clone(), ctx_clone.clone()).next() {
-            Some(Ok(v)) => v,
-            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-            None => return Box::new(std::iter::empty()),
-        };
+        let init_values: Vec<Jv> = init_inner.eval_expr(init_expr, input.clone(), ctx_clone.clone())
+            .filter_map(|r| r.ok())
+            .collect();
 
-        let mut results = Vec::new();
-
-        // Iterate over values
-        let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
-        for result in iter_inner.eval_expr(iter_expr, input.clone(), ctx_clone.clone()) {
-            match result {
-                Ok(item) => {
-                    // Create context with binding
-                    let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                    if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
-                        return Box::new(std::iter::once(Err(e)));
-                    }
-
-                    // Evaluate update with state as input
-                    let mut update_inner = Interpreter { ctx: child_ctx.clone() };
-                    match update_inner.eval_expr(update_expr, state.clone(), child_ctx.clone()).next() {
-                        Some(Ok(v)) => state = v,
-                        Some(Err(e)) => {
-                            // Check if it's a break signal - if so, propagate it
-                            // The label handler will catch it
-                            if e.starts_with(BREAK_PREFIX) {
-                                results.push(Err(e));
-                                return Box::new(results.into_iter());
-                            }
-                            return Box::new(std::iter::once(Err(e)));
-                        }
-                        None => {}
-                    }
-
-                    // Extract output if provided
-                    if let Some(ext_expr) = extract_expr {
-                        let mut ext_inner = Interpreter { ctx: child_ctx.clone() };
-                        for ext_result in ext_inner.eval_expr(ext_expr, state.clone(), child_ctx) {
-                            match ext_result {
-                                Ok(v) => results.push(Ok(v)),
-                                Err(e) => {
-                                    if e.starts_with(BREAK_PREFIX) {
-                                        results.push(Err(e));
-                                        return Box::new(results.into_iter());
-                                    }
-                                    results.push(Err(e));
-                                }
-                            }
-                        }
-                    } else {
-                        results.push(Ok(state.clone()));
-                    }
-                }
-                Err(e) => return Box::new(std::iter::once(Err(e))),
-            }
+        if init_values.is_empty() {
+            return Box::new(std::iter::empty());
         }
 
-        Box::new(results.into_iter())
+        let mut all_results = Vec::new();
+
+        // For each initial state
+        for init_state in init_values {
+            let mut state = init_state;
+            let mut results = Vec::new();
+
+            // Iterate over values
+            let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
+            let iter_values: Vec<Result<Jv, String>> = iter_inner.eval_expr(iter_expr, input.clone(), ctx_clone.clone()).collect();
+
+            for result in iter_values {
+                match result {
+                    Ok(item) => {
+                        // Create context with binding
+                        let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+                        if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
+                            return Box::new(std::iter::once(Err(e)));
+                        }
+
+                        // Evaluate update with state as input
+                        let mut update_inner = Interpreter { ctx: child_ctx.clone() };
+                        match update_inner.eval_expr(update_expr, state.clone(), child_ctx.clone()).next() {
+                            Some(Ok(v)) => state = v,
+                            Some(Err(e)) => {
+                                // Check if it's a break signal - if so, propagate it
+                                // The label handler will catch it
+                                if e.starts_with(BREAK_PREFIX) {
+                                    results.push(Err(e));
+                                    all_results.extend(results);
+                                    return Box::new(all_results.into_iter());
+                                }
+                                return Box::new(std::iter::once(Err(e)));
+                            }
+                            None => {}
+                        }
+
+                        // Extract output if provided
+                        if let Some(ext_expr) = extract_expr {
+                            let mut ext_inner = Interpreter { ctx: child_ctx.clone() };
+                            for ext_result in ext_inner.eval_expr(ext_expr, state.clone(), child_ctx) {
+                                match ext_result {
+                                    Ok(v) => results.push(Ok(v)),
+                                    Err(e) => {
+                                        if e.starts_with(BREAK_PREFIX) {
+                                            results.push(Err(e));
+                                            all_results.extend(results);
+                                            return Box::new(all_results.into_iter());
+                                        }
+                                        results.push(Err(e));
+                                    }
+                                }
+                            }
+                        } else {
+                            results.push(Ok(state.clone()));
+                        }
+                    }
+                    Err(e) => return Box::new(std::iter::once(Err(e))),
+                }
+            }
+
+            all_results.extend(results);
+        }
+
+        Box::new(all_results.into_iter())
     }
 
     fn eval_group_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {

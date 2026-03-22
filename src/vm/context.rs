@@ -950,7 +950,8 @@ fn builtin_ltrimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
         (Jv::String(s), Some(Jv::String(prefix))) => {
             ok(Jv::String(s.ltrimstr(prefix.as_str())))
         }
-        _ => err("ltrimstr requires string arguments".to_string()),
+        // jq reports this as startswith error since ltrimstr uses it internally
+        _ => err("startswith() requires string inputs".to_string()),
     }
 }
 
@@ -959,7 +960,8 @@ fn builtin_rtrimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
         (Jv::String(s), Some(Jv::String(suffix))) => {
             ok(Jv::String(s.rtrimstr(suffix.as_str())))
         }
-        _ => err("rtrimstr requires string arguments".to_string()),
+        // jq reports this as endswith error since rtrimstr uses it internally
+        _ => err("endswith() requires string inputs".to_string()),
     }
 }
 

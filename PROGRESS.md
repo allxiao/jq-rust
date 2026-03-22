@@ -310,7 +310,9 @@
   - `walk(select(cond))` now omits values when filter produces no output
 - [x] Fixed slice assignment with float indices
 - [x] Fixed setpath error message to match jq format
-- [x] Integration tests: 457/527 jq.test cases passing (86.7%)
+- [x] Fixed ltrimstr/rtrimstr error messages to match jq (use startswith/endswith)
+- [x] Fixed foreach to iterate over all init values (generator support)
+- [x] Integration tests: 460/527 jq.test cases passing (87.3%)
 
 ## Phase Progress
 
