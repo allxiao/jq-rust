@@ -1051,8 +1051,27 @@ impl<'a> Parser<'a> {
                 // Keywords can be used as object keys (e.g., {if: 0, and: 1})
                 let name = self.current.kind.as_ident_string().unwrap().to_string();
                 self.advance();
-                // Keywords always need a colon (no shorthand for keywords)
-                ObjectKey::Ident(name)
+                if self.check(&TokenKind::Colon) {
+                    ObjectKey::Ident(name)
+                } else {
+                    // Shorthand: {as} means {as: .as}
+                    let value = Box::new(Expr::new(
+                        ExprKind::Index {
+                            expr: Box::new(Expr::new(ExprKind::Identity, start)),
+                            index: Box::new(Expr::new(
+                                ExprKind::Literal(Literal::String(name.clone())),
+                                start,
+                            )),
+                            optional: false,
+                        },
+                        start,
+                    ));
+                    return Ok(ObjectEntry {
+                        key: ObjectKey::Shorthand(name),
+                        value,
+                        span: start,
+                    });
+                }
             }
             TokenKind::StringStart => {
                 let s = self.parse_string()?;
@@ -1108,15 +1127,20 @@ impl<'a> Parser<'a> {
                 ObjectKey::Expr(Box::new(expr))
             }
             TokenKind::Binding(name) => {
-                // $var means {var: $var} - key is the variable NAME as string
                 let name = name.clone();
                 self.advance();
-                let value = Box::new(Expr::new(ExprKind::Variable(name.clone()), start));
-                return Ok(ObjectEntry {
-                    key: ObjectKey::Shorthand(name),
-                    value,
-                    span: start,
-                });
+                if self.check(&TokenKind::Colon) {
+                    // $var: value - key is the VALUE of $var, value is what follows
+                    ObjectKey::Expr(Box::new(Expr::new(ExprKind::Variable(name), start)))
+                } else {
+                    // Shorthand: $var means {var: $var} - key is the variable NAME as string
+                    let value = Box::new(Expr::new(ExprKind::Variable(name.clone()), start));
+                    return Ok(ObjectEntry {
+                        key: ObjectKey::Shorthand(name),
+                        value,
+                        span: start,
+                    });
+                }
             }
             TokenKind::Loc => {
                 // $__loc__ means {__loc__: $__loc__}
