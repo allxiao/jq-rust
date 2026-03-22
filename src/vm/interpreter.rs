@@ -3536,6 +3536,11 @@ impl Interpreter {
             _ => return Box::new(std::iter::once(Err(format!("sub/gsub requires string input, got {}", input.type_name())))),
         };
 
+        // Check if we need fancy-regex for lookahead/lookbehind
+        if crate::regex_helper::needs_fancy_regex(&regex_pattern) {
+            return self.eval_sub_impl_fancy(&regex_pattern, replacement_expr, &s, input, ctx, is_global);
+        }
+
         let re = match regex::Regex::new(&regex_pattern) {
             Ok(r) => r,
             Err(e) => return Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
@@ -3669,6 +3674,142 @@ impl Interpreter {
 
     /// Build a capture object from regex captures for sub/gsub replacement
     fn build_capture_object(&self, caps: &regex::Captures, capture_names: &[Option<&str>]) -> Jv {
+        let mut obj = crate::jv::JvObject::new();
+
+        // Add named captures
+        for (i, name_opt) in capture_names.iter().enumerate() {
+            if let Some(name) = name_opt {
+                if let Some(m) = caps.get(i) {
+                    obj.set(name, Jv::string(m.as_str()));
+                } else {
+                    obj.set(name, Jv::Null);
+                }
+            }
+        }
+
+        Jv::Object(obj)
+    }
+
+    /// Fancy-regex version of sub/gsub for patterns with lookahead/lookbehind
+    fn eval_sub_impl_fancy(&mut self, regex_pattern: &str, replacement_expr: &Expr, s: &str, input: Jv, ctx: Rc<RefCell<Context>>, is_global: bool) -> EvalResult {
+        let re = match fancy_regex::Regex::new(regex_pattern) {
+            Ok(r) => r,
+            Err(e) => return Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
+        };
+
+        // Get named capture groups
+        let capture_names: Vec<Option<String>> = re.capture_names().map(|n| n.map(String::from)).collect();
+
+        let replacement_expr = replacement_expr.clone();
+        let ctx_clone = ctx.clone();
+        let s = s.to_string();
+
+        // Process replacements
+        if is_global {
+            // gsub - replace all matches
+            // Collect all captures first
+            let mut all_caps = Vec::new();
+            for caps_result in re.captures_iter(&s) {
+                match caps_result {
+                    Ok(caps) => all_caps.push(caps),
+                    Err(e) => return Box::new(std::iter::once(Err(format!("regex error: {}", e)))),
+                }
+            }
+
+            if all_caps.is_empty() {
+                // No match, return input unchanged
+                return Box::new(std::iter::once(Ok(input)));
+            }
+
+            // For each capture, collect all replacement values
+            let mut caps_with_replacements: Vec<(fancy_regex::Captures, Vec<String>)> = Vec::new();
+            for caps in all_caps {
+                let capture_obj = self.build_capture_object_fancy(&caps, &capture_names);
+
+                // Collect ALL replacement values from evaluating the expression
+                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut replacements = Vec::new();
+                for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
+                    match result {
+                        Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
+                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Err(e) => return Box::new(std::iter::once(Err(e))),
+                    }
+                }
+                if replacements.is_empty() {
+                    replacements.push(String::new()); // Empty replacement
+                }
+                caps_with_replacements.push((caps, replacements));
+            }
+
+            // Generate replacements
+            let max_replacements = caps_with_replacements.iter().map(|(_, r)| r.len()).max().unwrap_or(1);
+
+            let mut results = Vec::new();
+            for repl_idx in 0..max_replacements {
+                let mut result = String::new();
+                let mut last_end = 0;
+
+                for (caps, replacements) in &caps_with_replacements {
+                    let m = caps.get(0).unwrap();
+                    result.push_str(&s[last_end..m.start()]);
+                    let repl = &replacements[repl_idx.min(replacements.len() - 1)];
+                    result.push_str(repl);
+                    last_end = m.end();
+                }
+                result.push_str(&s[last_end..]);
+                results.push(Ok(Jv::string(result)));
+            }
+
+            if results.len() == 1 {
+                Box::new(results.into_iter())
+            } else {
+                Box::new(results.into_iter())
+            }
+        } else {
+            // sub - replace first match only
+            let caps_result = re.captures(&s);
+            match caps_result {
+                Ok(Some(caps)) => {
+                    let capture_obj = self.build_capture_object_fancy(&caps, &capture_names);
+
+                    // Collect all replacement values
+                    let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                    let mut replacements = Vec::new();
+                    for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
+                        match result {
+                            Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
+                            Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                            Err(e) => return Box::new(std::iter::once(Err(e))),
+                        }
+                    }
+
+                    if replacements.is_empty() {
+                        replacements.push(String::new());
+                    }
+
+                    let m = caps.get(0).unwrap();
+                    let results: Vec<_> = replacements.into_iter().map(|repl| {
+                        let mut result = String::new();
+                        result.push_str(&s[..m.start()]);
+                        result.push_str(&repl);
+                        result.push_str(&s[m.end()..]);
+                        Ok(Jv::string(result))
+                    }).collect();
+
+                    Box::new(results.into_iter())
+                }
+                Ok(None) => {
+                    // No match, return input unchanged
+                    Box::new(std::iter::once(Ok(input)))
+                }
+                Err(e) => Box::new(std::iter::once(Err(format!("regex error: {}", e)))),
+            }
+        }
+    }
+
+    /// Build a capture object from fancy-regex captures
+    fn build_capture_object_fancy(&self, caps: &fancy_regex::Captures, capture_names: &[Option<String>]) -> Jv {
         let mut obj = crate::jv::JvObject::new();
 
         // Add named captures

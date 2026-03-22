@@ -553,10 +553,16 @@
   - When first pattern matches but body errors, now falls back to alternative pattern
   - Matches jq semantics: `.[] as [$a] ?// [$b] | error_body` tries alternative on error
 - [x] Fixed run-tests tool to set module search path
+- [x] Added fancy-regex support for lookahead/lookbehind patterns
+  - Added `fancy-regex` crate as dependency
+  - Created `regex_helper` module to detect patterns needing fancy-regex
+  - Modified `eval_sub_impl` to dispatch to fancy-regex when needed
+  - Added `eval_sub_impl_fancy` for patterns with `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`
+- [x] **ALL TESTS NOW PASS: 855/855 (100%)**
 
 ## Known Limitations
 
-1. **Lookahead/lookbehind regex** - The Rust `regex` crate doesn't support lookahead (`(?=...)`) or lookbehind (`(?<=...)`) assertions. This affects 1 test in onig.test.
+None - all tests pass!
 
 ## Phase Progress
 
@@ -612,12 +618,12 @@
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 527           | 527         | 100%     |
 | man.test   | 230           | 230         | 100%     |
-| onig.test  | 46            | 47          | 97.9%    |
+| onig.test  | 47            | 47          | 100%     |
 | manonig.test | 19          | 19          | 100%     |
 | base64.test| 10            | 10          | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | optional.test | 2          | 2           | 100%     |
-| **Total**  | **854**       | **855**     | **99.9%**|
+| **Total**  | **855**       | **855**     | **100%** |
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project

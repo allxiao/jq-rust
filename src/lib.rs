@@ -10,6 +10,7 @@ pub mod vm;
 pub mod builtins;
 pub mod testing;
 pub mod module;
+pub mod regex_helper;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;
