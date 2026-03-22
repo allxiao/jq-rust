@@ -324,7 +324,12 @@
 - [x] Fixed print depth limit to use `>` instead of `>=` (match jq behavior)
   - jq allows depth 10000, skips at 10001
   - This fixed the "Exceeds depth limit for parsing" test
-- [x] Integration tests: 463/527 jq.test cases passing (87.9%)
+- [x] Fixed foreach/reduce to parse multiplicative expressions as iterator
+  - Allows `foreach -.[] as $x` and `foreach .[] / .[] as $x`
+- [x] Fixed binary operation generator order to match jq semantics
+  - jq iterates left values for each right value, not the other way around
+  - `(1,2) + (3,4)` now produces `4,5,5,6` in correct order: 1+3, 2+3, 1+4, 2+4
+- [x] Integration tests: 467/527 jq.test cases passing (88.6%)
 
 ## Known Limitations
 
@@ -392,7 +397,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 463           | 527         | 87.9%    |
+| jq.test    | 467           | 527         | 88.6%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
