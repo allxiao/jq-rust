@@ -113,6 +113,14 @@
 - [x] Fixed path() to handle comma expressions
 - [x] All 95 unit tests passing
 
+### Session 6 (2026-03-20)
+- [x] Added tojson/fromjson functions
+- [x] Added nth(n; expr) - get nth element from generator
+- [x] Added last(expr) - get last element from generator
+- [x] Added any(filter), any(gen; filter) variants
+- [x] Added all(filter), all(gen; filter) variants
+- [x] All 95 unit tests passing
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)

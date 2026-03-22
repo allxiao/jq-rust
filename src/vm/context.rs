@@ -67,6 +67,15 @@ impl BuiltinRegistry {
         self.register("nth", 1, builtin_nth);
         self.register("error", 0, builtin_error);
         self.register("error", 1, builtin_error_msg);
+        self.register("debug", 0, builtin_debug);
+        self.register("debug", 1, builtin_debug_msg);
+        self.register("input_line_number", 0, builtin_input_line_number);
+        self.register("$__loc__", 0, builtin_loc);
+        self.register("builtins", 0, builtin_builtins);
+        self.register("now", 0, builtin_now);
+        self.register("modulemeta", 1, builtin_modulemeta);
+        self.register("getpath", 1, builtin_getpath);
+        self.register("delpaths", 1, builtin_delpaths);
 
         // Math functions
         self.register("floor", 0, builtin_floor);
@@ -89,6 +98,8 @@ impl BuiltinRegistry {
         self.register("join", 1, builtin_join);
         self.register("implode", 0, builtin_implode);
         self.register("explode", 0, builtin_explode);
+        self.register("tojson", 0, builtin_tojson);
+        self.register("fromjson", 0, builtin_fromjson);
 
         // Array functions
         self.register("has", 1, builtin_has);
@@ -463,6 +474,62 @@ fn builtin_error_msg(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Ite
         Some(s) => err(s.to_string()),
         None => err(args.first().map(|v| format!("{}", v)).unwrap_or_default()),
     }
+}
+
+fn builtin_debug(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // debug outputs to stderr and returns input unchanged
+    use crate::jv::print_jv;
+    eprintln!("[\"DEBUG:\",{}]", print_jv(&input));
+    ok(input)
+}
+
+fn builtin_debug_msg(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    use crate::jv::print_jv;
+    let msg = args.first().map(|v| print_jv(v)).unwrap_or_else(|| "DEBUG".to_string());
+    eprintln!("[{},{}]", msg, print_jv(&input));
+    ok(input)
+}
+
+fn builtin_input_line_number(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // For now, return a placeholder - proper implementation needs runtime state
+    ok(Jv::from_i64(1))
+}
+
+fn builtin_loc(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let mut obj = crate::jv::JvObject::new();
+    obj.set("file", Jv::string("<stdin>"));
+    obj.set("line", Jv::from_i64(1));
+    ok(Jv::Object(obj))
+}
+
+fn builtin_builtins(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // Return list of builtin function names - simplified version
+    let builtins = vec![
+        "empty", "null", "true", "false", "not", "type", "length", "keys", "values",
+        "add", "reverse", "sort", "unique", "flatten", "first", "last", "nth",
+        "floor", "ceil", "round", "sqrt", "abs", "min", "max",
+        "map", "select", "recurse", "range", "limit", "group_by", "sort_by", "unique_by",
+        "tostring", "tonumber", "split", "join", "test", "match", "sub", "gsub",
+        "has", "in", "contains", "inside", "getpath", "setpath", "delpaths", "del",
+        "to_entries", "from_entries", "keys_unsorted", "error", "debug",
+        "@base64", "@base64d", "@uri", "@csv", "@tsv", "@html", "@sh", "@json", "@text",
+    ];
+    let arr: Vec<Jv> = builtins.iter().map(|s| Jv::string(*s)).collect();
+    ok(Jv::from_vec(arr))
+}
+
+fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs_f64();
+    ok(Jv::from_f64(secs))
+}
+
+fn builtin_modulemeta(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // Return empty object for now - module system not implemented
+    ok(Jv::Object(crate::jv::JvObject::new()))
 }
 
 fn builtin_floor(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -1508,6 +1575,24 @@ fn builtin_utf8bytelength(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dy
             ok(Jv::from_i64(s.as_str().len() as i64))
         }
         _ => err("utf8bytelength requires string input".to_string()),
+    }
+}
+
+fn builtin_tojson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    use crate::jv::print_jv;
+    ok(Jv::string(print_jv(&input)))
+}
+
+fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            use crate::jv::parse_json;
+            match parse_json(s.as_str()) {
+                Ok(v) => ok(v),
+                Err(e) => err(format!("invalid JSON: {}", e)),
+            }
+        }
+        _ => err("fromjson requires string input".to_string()),
     }
 }
 

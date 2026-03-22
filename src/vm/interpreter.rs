@@ -704,7 +704,11 @@ impl Interpreter {
             ("max_by", 1) => return self.eval_max_by(&args[0], input, ctx),
             ("min_by", 1) => return self.eval_min_by(&args[0], input, ctx),
             ("any", 0) => return self.eval_any_simple(input),
+            ("any", 1) => return self.eval_any_filter(&args[0], input, ctx),
+            ("any", 2) => return self.eval_any_gen_filter(&args[0], &args[1], input, ctx),
             ("all", 0) => return self.eval_all_simple(input),
+            ("all", 1) => return self.eval_all_filter(&args[0], input, ctx),
+            ("all", 2) => return self.eval_all_gen_filter(&args[0], &args[1], input, ctx),
             ("del", 1) => return self.eval_del(&args[0], input, ctx),
             ("getpath", 1) => return self.eval_getpath(&args[0], input, ctx),
             ("isempty", 1) => return self.eval_isempty(&args[0], input, ctx),
@@ -721,6 +725,8 @@ impl Interpreter {
             ("path", 1) => return self.eval_path(&args[0], input, ctx),
             ("paths", 1) => return self.eval_paths_filter(&args[0], input, ctx),
             ("pick", 1) => return self.eval_pick(&args[0], input, ctx),
+            ("nth", 2) => return self.eval_nth(&args[0], &args[1], input, ctx),
+            ("last", 1) => return self.eval_last_expr(&args[0], input, ctx),
             ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
                 // These are handled as regular builtins
             }
@@ -936,6 +942,39 @@ impl Interpreter {
         let mut inner = Interpreter { ctx: ctx_clone.clone() };
 
         match inner.eval_expr(iter_expr, input, ctx_clone).next() {
+            Some(result) => Box::new(std::iter::once(result)),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    fn eval_last_expr(&mut self, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        let ctx_clone = ctx.clone();
+        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+
+        let mut last_result = None;
+        for result in inner.eval_expr(iter_expr, input, ctx_clone) {
+            last_result = Some(result);
+        }
+
+        match last_result {
+            Some(result) => Box::new(std::iter::once(result)),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    fn eval_nth(&mut self, n_expr: &Expr, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        let ctx_clone = ctx.clone();
+
+        // Evaluate n
+        let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
+        let n = match n_inner.eval_expr(n_expr, input.clone(), ctx_clone.clone()).next() {
+            Some(Ok(Jv::Number(num))) => num.as_i64().unwrap_or(0) as usize,
+            _ => return Box::new(std::iter::once(Err("nth requires integer".to_string()))),
+        };
+
+        // Get the nth element from the iterator
+        let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
+        match iter_inner.eval_expr(iter_expr, input, ctx_clone).nth(n) {
             Some(result) => Box::new(std::iter::once(result)),
             None => Box::new(std::iter::empty()),
         }
@@ -1192,6 +1231,88 @@ impl Interpreter {
             }
             _ => Box::new(std::iter::once(Err("all requires array".to_string()))),
         }
+    }
+
+    fn eval_any_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // any(f) = map(f) | any
+        match &input {
+            Jv::Array(arr) => {
+                for item in arr.iter() {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    match inner.eval_expr(filter, item, ctx.clone()).next() {
+                        Some(Ok(v)) if v.is_truthy() => {
+                            return Box::new(std::iter::once(Ok(Jv::Bool(true))));
+                        }
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        _ => {}
+                    }
+                }
+                Box::new(std::iter::once(Ok(Jv::Bool(false))))
+            }
+            _ => Box::new(std::iter::once(Err("any requires array".to_string()))),
+        }
+    }
+
+    fn eval_all_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // all(f) = map(f) | all
+        match &input {
+            Jv::Array(arr) => {
+                for item in arr.iter() {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    match inner.eval_expr(filter, item, ctx.clone()).next() {
+                        Some(Ok(v)) if !v.is_truthy() => {
+                            return Box::new(std::iter::once(Ok(Jv::Bool(false))));
+                        }
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        _ => {}
+                    }
+                }
+                Box::new(std::iter::once(Ok(Jv::Bool(true))))
+            }
+            _ => Box::new(std::iter::once(Err("all requires array".to_string()))),
+        }
+    }
+
+    fn eval_any_gen_filter(&mut self, gen: &Expr, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // any(gen; filter) = first(gen | select(filter)) | true
+        let mut inner_gen = Interpreter { ctx: ctx.clone() };
+        for result in inner_gen.eval_expr(gen, input.clone(), ctx.clone()) {
+            match result {
+                Ok(item) => {
+                    let mut inner_filter = Interpreter { ctx: ctx.clone() };
+                    match inner_filter.eval_expr(filter, item, ctx.clone()).next() {
+                        Some(Ok(v)) if v.is_truthy() => {
+                            return Box::new(std::iter::once(Ok(Jv::Bool(true))));
+                        }
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        _ => {}
+                    }
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            }
+        }
+        Box::new(std::iter::once(Ok(Jv::Bool(false))))
+    }
+
+    fn eval_all_gen_filter(&mut self, gen: &Expr, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // all(gen; filter) = first(gen | if filter then empty else . end) | false | not
+        let mut inner_gen = Interpreter { ctx: ctx.clone() };
+        for result in inner_gen.eval_expr(gen, input.clone(), ctx.clone()) {
+            match result {
+                Ok(item) => {
+                    let mut inner_filter = Interpreter { ctx: ctx.clone() };
+                    match inner_filter.eval_expr(filter, item, ctx.clone()).next() {
+                        Some(Ok(v)) if !v.is_truthy() => {
+                            return Box::new(std::iter::once(Ok(Jv::Bool(false))));
+                        }
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        _ => {}
+                    }
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            }
+        }
+        Box::new(std::iter::once(Ok(Jv::Bool(true))))
     }
 
     fn eval_del(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
