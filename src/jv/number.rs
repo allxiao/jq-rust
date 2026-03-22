@@ -19,11 +19,28 @@ pub struct JvNumber {
 }
 
 impl JvNumber {
+    /// Maximum integer that can be exactly represented in f64
+    /// 2^53 = 9007199254740992
+    const MAX_EXACT_INT: i64 = (1i64 << 53);
+
     /// Create a number from an i64
     pub fn from_i64(n: i64) -> Self {
+        let value = n as f64;
+        // Only preserve integer value if it can be exactly represented in f64
+        let int_value = if n.abs() <= Self::MAX_EXACT_INT {
+            Some(n)
+        } else {
+            // For large integers, check if round-trip conversion preserves value
+            let back = value as i64;
+            if back == n {
+                Some(n)
+            } else {
+                None
+            }
+        };
         JvNumber {
-            value: n as f64,
-            int_value: Some(n),
+            value,
+            int_value,
         }
     }
 

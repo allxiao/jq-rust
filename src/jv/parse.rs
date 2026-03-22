@@ -104,8 +104,8 @@ impl<'a> JsonParser<'a> {
         } else {
             self.expect_literal("nan")?;
         }
-        // jq represents NaN as null
-        Ok(Jv::Null)
+        // jq keeps NaN as a Number internally (type is "number"), displays as "null"
+        Ok(Jv::Number(JvNumber::from_f64(f64::NAN)))
     }
 
     fn parse_neg_nan(&mut self) -> Result<Jv, JqError> {
@@ -114,8 +114,8 @@ impl<'a> JsonParser<'a> {
         } else {
             self.expect_literal("-nan")?;
         }
-        // jq represents -NaN as null too
-        Ok(Jv::Null)
+        // -NaN is also a Number internally
+        Ok(Jv::Number(JvNumber::from_f64(f64::NAN)))
     }
 
     fn parse_null(&mut self) -> Result<Jv, JqError> {

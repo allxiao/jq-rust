@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~93%
+**Overall Progress**: ~94.5%
 
 ## Session Log
 
@@ -351,25 +351,32 @@
 - [x] Support `def` after comma in expressions
   - `f, def g: 2; g` now parses correctly
 - [x] Parse special JSON values: Infinity, -Infinity, NaN, -NaN
-  - Maps Infinity to f64::MAX, NaN to null
+  - Maps Infinity to f64::MAX, NaN kept as Number(f64::NAN)
 - [x] Support `$__loc__` in object shorthand
   - `{$__loc__}` means `{__loc__: $__loc__}`
 - [x] Support `$var: value` in object construction
   - Key is the variable's value, not its name
 - [x] Implement iterator assignment (`.[] = value`)
   - Replaces all array elements or object values
-- [x] Integration tests: 490/527 jq.test cases passing (93.0%)
+- [x] Integration tests: 498/527 jq.test cases passing (94.5%)
+- [x] Fixed NaN parsing to keep as Number type (not Null)
+  - `nan | type` now returns "number"
+  - `nan | isnan` now returns true
+- [x] Fixed large integer precision (>2^53) to match f64 representation
+  - Numbers exceeding f64's exact representation limit now properly lose precision
 
 ## Known Limitations
 
 The remaining test failures are due to:
 
-1. **Numeric precision** - Large integers (>2^53) aren't handled correctly by f64
-2. **Module system** - import/include and modulemeta not implemented (9 tests)
-3. **Complex path expressions** - `del(expr | .[indices])` and similar piped paths
-4. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
-5. **Path function errors** - `path()` should detect invalid expressions and return specific errors
-6. **Recursive descent with select** - `..| select()` piped path expressions
+1. **Module system** - import/include and modulemeta not implemented (9 errors)
+2. **Complex path expressions** - `del(expr | .[indices])` and similar piped paths
+3. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
+4. **Path function errors** - `path()` should detect invalid expressions and return specific errors
+5. **Recursive descent with select** - `..| select()` piped path expressions with update
+6. **Function call as lvalue** - `def x: .[1,2]; x=10` should work
+7. **Error message formats** - Some parse error messages differ from jq
+8. **Extreme exponents** - Numbers like `9E999999999` should preserve their notation
 
 ## Phase Progress
 
@@ -423,7 +430,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 490           | 527         | 93.0%    |
+| jq.test    | 498           | 527         | 94.5%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
