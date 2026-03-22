@@ -3975,6 +3975,19 @@ impl Interpreter {
                         }
                     }
                     _ => {
+                        // Check if base is a non-path function call
+                        if let ExprKind::FunctionCall { name, .. } = &base.kind {
+                            if !matches!(name.as_str(), "getpath" | "first" | "last") {
+                                // Evaluate to get the result value for the error message
+                                let mut base_interp = Interpreter { ctx: ctx.clone() };
+                                if let Some(Ok(result)) = base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                                    use crate::jv::print_jv;
+                                    let formatted = print_jv(&result);
+                                    return Err(format!("Invalid path expression near attempt to iterate through {}", formatted));
+                                }
+                            }
+                        }
+
                         // Nested: get base value, apply iterator assignment, set back
                         let mut base_interp = Interpreter { ctx: ctx.clone() };
                         let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
@@ -4217,6 +4230,20 @@ impl Interpreter {
 
                 result = set_path(result, &components, value)?;
                 Ok(result)
+            }
+            ExprKind::FunctionCall { name, .. } => {
+                // For any other function call, evaluate it and produce an error with the result
+                // This handles both built-in functions like reverse, sort, etc.
+                // and user-defined functions that don't produce valid paths
+                if !matches!(name.as_str(), "getpath" | "first" | "last") {
+                    let mut interp = Interpreter { ctx: ctx.clone() };
+                    if let Some(Ok(result)) = interp.eval_expr(target, current.clone(), ctx.clone()).next() {
+                        use crate::jv::print_jv;
+                        let formatted = print_jv(&result);
+                        return Err(format!("Invalid path expression with result {}", formatted));
+                    }
+                }
+                Err(format!("Cannot assign to expression: {:?}", target.kind))
             }
             _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
         }
