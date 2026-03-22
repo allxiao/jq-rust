@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~87%
+**Overall Progress**: ~88%
 
 ## Session Log
 
@@ -316,6 +316,16 @@
 - [x] Fixed getpath assignment error message format (no index in parens)
 - [x] Integration tests: 461/527 jq.test cases passing (87.5%)
 
+### Session 18 (2026-03-21)
+- [x] Fixed jq_compat test to use thread with larger stack (16MB)
+  - Tests involving deeply nested structures were causing stack overflow in test harness
+- [x] Fixed setpath/indexing error messages to include index value in parentheses
+  - "Cannot index object with number (1)" instead of "Cannot index object with number"
+- [x] Fixed print depth limit to use `>` instead of `>=` (match jq behavior)
+  - jq allows depth 10000, skips at 10001
+  - This fixed the "Exceeds depth limit for parsing" test
+- [x] Integration tests: 463/527 jq.test cases passing (87.9%)
+
 ## Known Limitations
 
 The remaining test failures are due to:
@@ -326,6 +336,9 @@ The remaining test failures are due to:
 4. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
 5. **Object key ordering** - Our HashMap doesn't preserve insertion order
 6. **Error message differences** - JSON parse errors use different format than jq
+7. **`?//` alternative pattern operator** - Pattern matching fallback not implemented (17 tests)
+8. **Unary negation on foreach/reduce** - `-foreach` and `-reduce` not parsed
+9. **Keywords as object keys** - `{as: $kw}` pattern where `as` is used as a key
 
 ## Phase Progress
 
@@ -379,7 +392,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 439           | 527         | 83%      |
+| jq.test    | 463           | 527         | 87.9%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
