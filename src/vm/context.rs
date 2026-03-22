@@ -74,6 +74,7 @@ impl BuiltinRegistry {
         self.register("round", 0, builtin_round);
         self.register("sqrt", 0, builtin_sqrt);
         self.register("fabs", 0, builtin_fabs);
+        self.register("abs", 0, builtin_fabs); // abs is alias for fabs
 
         // String functions
         self.register("tostring", 0, builtin_tostring);
@@ -86,6 +87,8 @@ impl BuiltinRegistry {
         self.register("endswith", 1, builtin_endswith);
         self.register("split", 1, builtin_split);
         self.register("join", 1, builtin_join);
+        self.register("implode", 0, builtin_implode);
+        self.register("explode", 0, builtin_explode);
 
         // Array functions
         self.register("has", 1, builtin_has);
@@ -108,6 +111,15 @@ impl BuiltinRegistry {
         self.register("splits", 1, builtin_splits);
         self.register("sub", 2, builtin_sub);
         self.register("gsub", 2, builtin_gsub);
+        self.register("bsearch", 1, builtin_bsearch);
+        self.register("ascii", 0, builtin_ascii);
+        self.register("utf8bytelength", 0, builtin_utf8bytelength);
+        self.register("getpath", 1, builtin_getpath);
+        self.register("group_by", 1, builtin_group_by);
+        self.register("unique_by", 1, builtin_unique_by);
+        self.register("sort_by", 1, builtin_sort_by);
+        self.register("max_by", 1, builtin_max_by);
+        self.register("min_by", 1, builtin_min_by);
 
         // Object functions
         self.register("to_entries", 0, builtin_to_entries);
@@ -153,6 +165,7 @@ impl BuiltinRegistry {
         self.register("@base64", 0, builtin_base64);
         self.register("@base64d", 0, builtin_base64d);
         self.register("@uri", 0, builtin_uri);
+        self.register("@urid", 0, builtin_urid);
         self.register("@csv", 0, builtin_csv);
         self.register("@tsv", 0, builtin_tsv);
         self.register("@html", 0, builtin_html);
@@ -1407,6 +1420,118 @@ fn builtin_gsub(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
+// ============ Additional array/string functions ============
+
+fn builtin_bsearch(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let target = match args.first() {
+        Some(t) => t,
+        None => return err("bsearch requires an argument".to_string()),
+    };
+
+    match &input {
+        Jv::Array(a) => {
+            // Binary search - assumes sorted array
+            let items: Vec<Jv> = a.iter().collect();
+            let mut lo = 0i64;
+            let mut hi = items.len() as i64;
+
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                if &items[mid as usize] < target {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+
+            // Check if found
+            if (lo as usize) < items.len() && &items[lo as usize] == target {
+                ok(Jv::from_i64(lo))
+            } else {
+                // Return negative insertion point minus 1
+                ok(Jv::from_i64(-lo - 1))
+            }
+        }
+        _ => err("bsearch requires array input".to_string()),
+    }
+}
+
+fn builtin_explode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            let codepoints: Vec<Jv> = s.as_str().chars()
+                .map(|c| Jv::from_i64(c as i64))
+                .collect();
+            ok(Jv::from_vec(codepoints))
+        }
+        _ => err("explode requires string input".to_string()),
+    }
+}
+
+fn builtin_implode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::Array(a) => {
+            let mut result = String::new();
+            for item in a.iter() {
+                if let Some(n) = item.as_i64() {
+                    if let Some(c) = char::from_u32(n as u32) {
+                        result.push(c);
+                    } else {
+                        return err(format!("invalid codepoint: {}", n));
+                    }
+                } else {
+                    return err("implode requires array of integers".to_string());
+                }
+            }
+            ok(Jv::string(result))
+        }
+        _ => err("implode requires array input".to_string()),
+    }
+}
+
+fn builtin_ascii(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            let s = s.as_str();
+            if s.is_empty() {
+                return ok(Jv::Null);
+            }
+            ok(Jv::from_i64(s.chars().next().unwrap() as i64))
+        }
+        _ => err("ascii requires string input".to_string()),
+    }
+}
+
+fn builtin_utf8bytelength(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            ok(Jv::from_i64(s.as_str().len() as i64))
+        }
+        _ => err("utf8bytelength requires string input".to_string()),
+    }
+}
+
+// Higher-order functions that need special handling but have arity 1
+fn builtin_group_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    err("group_by must be handled by the interpreter".to_string())
+}
+
+fn builtin_unique_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    err("unique_by must be handled by the interpreter".to_string())
+}
+
+fn builtin_sort_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    err("sort_by must be handled by the interpreter".to_string())
+}
+
+fn builtin_max_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    err("max_by must be handled by the interpreter".to_string())
+}
+
+fn builtin_min_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    err("min_by must be handled by the interpreter".to_string())
+}
+
 // ============ Format functions ============
 
 fn builtin_base64(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -1436,6 +1561,18 @@ fn builtin_uri(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
             ok(Jv::string(crate::builtins::format::uri_encode(s.as_str())))
         }
         _ => err("@uri requires string input".to_string()),
+    }
+}
+
+fn builtin_urid(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            match crate::builtins::format::uri_decode(s.as_str()) {
+                Ok(decoded) => ok(Jv::string(decoded)),
+                Err(e) => err(e),
+            }
+        }
+        _ => err("@urid requires string input".to_string()),
     }
 }
 
