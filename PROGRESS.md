@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~89%
+**Overall Progress**: ~93%
 
 ## Session Log
 
@@ -337,19 +337,39 @@
   - `.[] //= .[0]` replaces falsy values with the alternative
 - [x] Integration tests: 470/527 jq.test cases passing (89.2%)
 
+### Session 19 (2026-03-21)
+- [x] Implemented `?//` pattern alternative operator
+  - `expr as pat1 ?// pat2 | body` tries patterns in sequence
+  - Variables from unmatched patterns are bound to null
+  - Full support for chained alternatives: `pat1 ?// pat2 ?// pat3`
+- [x] Added expression keys in object patterns
+  - `{("e"+"x"+"p"): $exp}` evaluates expression to get key string
+- [x] Keywords as object keys in patterns and construction
+  - `{as: $kw}` now works in patterns
+  - `{if: 0, and: 1}` works in object construction
+  - Keyword shorthand: `{as}` means `{as: .as}`
+- [x] Support `def` after comma in expressions
+  - `f, def g: 2; g` now parses correctly
+- [x] Parse special JSON values: Infinity, -Infinity, NaN, -NaN
+  - Maps Infinity to f64::MAX, NaN to null
+- [x] Support `$__loc__` in object shorthand
+  - `{$__loc__}` means `{__loc__: $__loc__}`
+- [x] Support `$var: value` in object construction
+  - Key is the variable's value, not its name
+- [x] Implement iterator assignment (`.[] = value`)
+  - Replaces all array elements or object values
+- [x] Integration tests: 490/527 jq.test cases passing (93.0%)
+
 ## Known Limitations
 
 The remaining test failures are due to:
 
 1. **Numeric precision** - Large integers (>2^53) aren't handled correctly by f64
-2. **Module system** - modulemeta and related functions not implemented
+2. **Module system** - import/include and modulemeta not implemented (9 tests)
 3. **Complex path expressions** - `del(expr | .[indices])` and similar piped paths
 4. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
-5. **Object key ordering** - Our HashMap doesn't preserve insertion order
-6. **Error message differences** - JSON parse errors use different format than jq
-7. **`?//` alternative pattern operator** - Pattern matching fallback not implemented (17 tests)
-8. **Unary negation on foreach/reduce** - `-foreach` and `-reduce` not parsed
-9. **Keywords as object keys** - `{as: $kw}` pattern where `as` is used as a key
+5. **Path function errors** - `path()` should detect invalid expressions and return specific errors
+6. **Recursive descent with select** - `..| select()` piped path expressions
 
 ## Phase Progress
 
@@ -403,7 +423,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 470           | 527         | 89.2%    |
+| jq.test    | 490           | 527         | 93.0%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
