@@ -198,7 +198,7 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
                 }
             }
 
-            // Compare outputs
+            // Compare outputs - normalize both to handle whitespace differences
             if actual_outputs.len() != expected_outputs.len() {
                 return TestOutcome::Fail {
                     reason: format!(
@@ -214,7 +214,11 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
             for (i, (expected, actual)) in
                 expected_outputs.iter().zip(actual_outputs.iter()).enumerate()
             {
-                if expected != actual {
+                // Normalize both by parsing and re-formatting, to handle whitespace differences
+                let normalized_expected = normalize_json(expected);
+                let normalized_actual = normalize_json(actual);
+
+                if normalized_expected != normalized_actual {
                     return TestOutcome::Fail {
                         reason: format!("Output {} mismatch", i + 1),
                         expected: expected_outputs.clone(),
@@ -225,6 +229,17 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
 
             TestOutcome::Pass
         }
+    }
+}
+
+/// Normalize a JSON string by parsing and re-formatting in compact form
+fn normalize_json(s: &str) -> String {
+    match parse_json(s) {
+        Ok(jv) => {
+            let opts = JvPrintOptions::compact();
+            print_jv_with_options(&jv, &opts)
+        }
+        Err(_) => s.to_string(), // If not valid JSON, return as-is
     }
 }
 

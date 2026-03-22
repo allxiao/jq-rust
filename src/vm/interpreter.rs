@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use crate::jv::{Jv, JvObject};
-use crate::parser::{Expr, ExprKind, Literal, BinaryOp, ObjectKey, StringPart, FuncDef};
+use crate::parser::{Expr, ExprKind, Literal, BinaryOp, ObjectKey, StringPart, FuncDef, Pattern, PatternKind};
 use super::context::Context;
 
 /// Result of evaluating an expression - can produce multiple values
@@ -408,10 +408,7 @@ impl Interpreter {
 
             ExprKind::Binding { expr: bind_expr, pattern, body } => {
                 let body_expr = body.clone();
-                let var_name = match &pattern.kind {
-                    crate::parser::PatternKind::Binding(name) => name.clone(),
-                    _ => return Box::new(std::iter::once(Err("complex patterns not yet supported".to_string()))),
-                };
+                let pattern = pattern.clone();
                 let ctx_clone = ctx.clone();
                 let input_clone = input.clone();
 
@@ -422,9 +419,13 @@ impl Interpreter {
                     match bind_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Ok(bind_val) => {
-                            // Create child context with binding
+                            // Create child context with bindings from pattern
                             let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                            child_ctx.borrow_mut().bind_value(&var_name, bind_val);
+
+                            // Try to bind the pattern
+                            if let Err(e) = Self::bind_pattern(&pattern, &bind_val, &child_ctx) {
+                                return Box::new(std::iter::once(Err(e))) as EvalResult;
+                            }
 
                             let mut inner = Interpreter { ctx: child_ctx.clone() };
                             inner.eval_expr(&body_expr, input_clone.clone(), child_ctx)
@@ -433,12 +434,12 @@ impl Interpreter {
                 }))
             }
 
-            ExprKind::Reduce { expr: iter_expr, var, init, update } => {
-                self.eval_reduce(iter_expr, var, init, update, input, ctx)
+            ExprKind::Reduce { expr: iter_expr, pattern, init, update } => {
+                self.eval_reduce(iter_expr, pattern, init, update, input, ctx)
             }
 
-            ExprKind::Foreach { expr: iter_expr, var, init, update, extract } => {
-                self.eval_foreach(iter_expr, var, init, update, extract.as_ref(), input, ctx)
+            ExprKind::Foreach { expr: iter_expr, pattern, init, update, extract } => {
+                self.eval_foreach(iter_expr, pattern, init, update, extract.as_ref(), input, ctx)
             }
 
             ExprKind::Alternative(left, right) => {
@@ -992,7 +993,7 @@ impl Interpreter {
         }
     }
 
-    fn eval_reduce(&mut self, iter_expr: &Expr, var: &str, init_expr: &Expr, update_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_reduce(&mut self, iter_expr: &Expr, pattern: &Pattern, init_expr: &Expr, update_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         let ctx_clone = ctx.clone();
 
         // Evaluate initial value
@@ -1010,7 +1011,9 @@ impl Interpreter {
                 Ok(item) => {
                     // Create context with binding
                     let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                    child_ctx.borrow_mut().bind_value(var, item);
+                    if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
+                        return Box::new(std::iter::once(Err(e)));
+                    }
 
                     // Evaluate update with acc as input
                     let mut update_inner = Interpreter { ctx: child_ctx.clone() };
@@ -1027,7 +1030,7 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(acc)))
     }
 
-    fn eval_foreach(&mut self, iter_expr: &Expr, var: &str, init_expr: &Expr, update_expr: &Expr, extract_expr: Option<&Box<Expr>>, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_foreach(&mut self, iter_expr: &Expr, pattern: &Pattern, init_expr: &Expr, update_expr: &Expr, extract_expr: Option<&Box<Expr>>, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         let ctx_clone = ctx.clone();
 
         // Evaluate initial value
@@ -1047,7 +1050,9 @@ impl Interpreter {
                 Ok(item) => {
                     // Create context with binding
                     let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                    child_ctx.borrow_mut().bind_value(var, item);
+                    if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
+                        return Box::new(std::iter::once(Err(e)));
+                    }
 
                     // Evaluate update with state as input
                     let mut update_inner = Interpreter { ctx: child_ctx.clone() };
@@ -2142,6 +2147,53 @@ impl Interpreter {
                 Self::apply_assignment(current, left, modified, _path, ctx)
             }
             _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
+        }
+    }
+
+    /// Bind values to a pattern, returning error if pattern doesn't match
+    fn bind_pattern(pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<(), String> {
+        match &pattern.kind {
+            PatternKind::Binding(name) => {
+                ctx.borrow_mut().bind_value(name, value.clone());
+                Ok(())
+            }
+            PatternKind::Array(patterns) => {
+                // Value must be an array
+                let arr = match value {
+                    Jv::Array(a) => a,
+                    _ => return Err(format!("Cannot bind {} to array pattern", value.type_name())),
+                };
+
+                // Bind each element to corresponding pattern
+                for (i, pat) in patterns.iter().enumerate() {
+                    let elem = arr.get(i as i64).unwrap_or(Jv::Null);
+                    Self::bind_pattern(pat, &elem, ctx)?;
+                }
+                Ok(())
+            }
+            PatternKind::Object(entries) => {
+                // Value must be an object
+                let obj = match value {
+                    Jv::Object(o) => o,
+                    _ => return Err(format!("Cannot bind {} to object pattern", value.type_name())),
+                };
+
+                // Bind each key's value to corresponding pattern
+                for (key, pat) in entries {
+                    let key_str = match key {
+                        ObjectKey::Ident(s) | ObjectKey::String(s) => s.clone(),
+                        ObjectKey::Shorthand(s) => s.clone(),
+                        ObjectKey::Expr(_) => {
+                            // Expression keys in patterns are not commonly used
+                            return Err("expression keys in patterns not yet supported".to_string());
+                        }
+                    };
+
+                    let elem = obj.get(&key_str).unwrap_or(Jv::Null);
+                    Self::bind_pattern(pat, &elem, ctx)?;
+                }
+                Ok(())
+            }
         }
     }
 }

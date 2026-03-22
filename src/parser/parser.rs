@@ -94,18 +94,149 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a pattern (for bindings)
+    /// Supports: $var, [$a, $b], {foo: $a, bar: $b}, {$a, $b}
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         let span = self.current.span;
+
+        // Simple binding: $var
         if let TokenKind::Binding(name) = &self.current.kind {
             let name = name.clone();
             self.advance();
-            Ok(Pattern {
+            return Ok(Pattern {
                 kind: PatternKind::Binding(name),
                 span,
-            })
-        } else {
-            Err(self.error("expected binding pattern ($var)"))
+            });
         }
+
+        // Array pattern: [$a, $b, ...]
+        if self.check(&TokenKind::LBracket) {
+            self.advance();
+            let mut elements = Vec::new();
+
+            if !self.check(&TokenKind::RBracket) {
+                elements.push(self.parse_pattern()?);
+
+                while self.check(&TokenKind::Comma) {
+                    self.advance();
+                    if self.check(&TokenKind::RBracket) {
+                        break;
+                    }
+                    elements.push(self.parse_pattern()?);
+                }
+            }
+
+            let end_span = self.current.span;
+            self.expect(&TokenKind::RBracket)?;
+
+            return Ok(Pattern {
+                kind: PatternKind::Array(elements),
+                span: span.merge(end_span),
+            });
+        }
+
+        // Object pattern: {foo: $a, bar: $b} or {$a, $b}
+        if self.check(&TokenKind::LBrace) {
+            self.advance();
+            let mut entries = Vec::new();
+
+            if !self.check(&TokenKind::RBrace) {
+                entries.push(self.parse_pattern_object_entry()?);
+
+                while self.check(&TokenKind::Comma) {
+                    self.advance();
+                    if self.check(&TokenKind::RBrace) {
+                        break;
+                    }
+                    entries.push(self.parse_pattern_object_entry()?);
+                }
+            }
+
+            let end_span = self.current.span;
+            self.expect(&TokenKind::RBrace)?;
+
+            return Ok(Pattern {
+                kind: PatternKind::Object(entries),
+                span: span.merge(end_span),
+            });
+        }
+
+        Err(self.error("expected binding pattern ($var), array pattern ([$a, $b]), or object pattern ({foo: $a})"))
+    }
+
+    /// Parse a single object pattern entry: foo: $a, "str": $b, or $a (shorthand)
+    fn parse_pattern_object_entry(&mut self) -> Result<(ObjectKey, Pattern), ParseError> {
+        // Shorthand binding: {$a} means {a: $a}
+        if let TokenKind::Binding(name) = &self.current.kind {
+            let name = name.clone();
+            let span = self.current.span;
+            self.advance();
+
+            // Check if this is followed by a colon (explicit key: pattern) or standalone (shorthand)
+            if self.check(&TokenKind::Colon) {
+                // Explicit pattern after binding used as key: {$a: $b} means {a: $b}
+                self.advance();
+                let pattern = self.parse_pattern()?;
+                return Ok((ObjectKey::Ident(name), pattern));
+            }
+
+            // Shorthand: {$a} means {a: $a}
+            let pattern = Pattern {
+                kind: PatternKind::Binding(name.clone()),
+                span,
+            };
+            return Ok((ObjectKey::Ident(name), pattern));
+        }
+
+        // Key with explicit pattern
+        let key = if let TokenKind::Ident(name) = &self.current.kind {
+            let name = name.clone();
+            self.advance();
+            ObjectKey::Ident(name)
+        } else if self.check(&TokenKind::StringStart) {
+            // String key: {"foo": pattern}
+            let s = self.parse_string_key()?;
+            ObjectKey::String(s)
+        } else if self.check(&TokenKind::LParen) {
+            // Expression key: {(expr): pattern}
+            self.advance();
+            let expr = self.parse_query()?;
+            self.expect(&TokenKind::RParen)?;
+            ObjectKey::Expr(Box::new(expr))
+        } else {
+            return Err(self.error("expected pattern key (identifier, string, or expression)"));
+        };
+
+        // Colon is required after the key
+        self.expect(&TokenKind::Colon)?;
+        let pattern = self.parse_pattern()?;
+        Ok((key, pattern))
+    }
+
+    /// Parse a string key (for object patterns) - simplified version
+    fn parse_string_key(&mut self) -> Result<String, ParseError> {
+        self.expect(&TokenKind::StringStart)?;
+
+        let mut text = String::new();
+        loop {
+            match &self.current.kind {
+                TokenKind::StringText(s) => {
+                    text.push_str(s);
+                    self.advance();
+                }
+                TokenKind::StringEnd => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::StringInterpStart => {
+                    return Err(self.error("interpolation not supported in pattern string keys"));
+                }
+                _ => {
+                    return Err(self.error("unexpected token in string"));
+                }
+            }
+        }
+
+        Ok(text)
     }
 
     /// Parse comma expression
@@ -896,13 +1027,7 @@ impl<'a> Parser<'a> {
         let expr = Box::new(self.parse_postfix_expr()?);
         self.expect(&TokenKind::As)?;
 
-        let var = if let TokenKind::Binding(name) = &self.current.kind {
-            let name = name.clone();
-            self.advance();
-            name
-        } else {
-            return Err(self.error("expected binding in reduce"));
-        };
+        let pattern = self.parse_pattern()?;
 
         self.expect(&TokenKind::LParen)?;
         let init = Box::new(self.parse_query()?);
@@ -914,7 +1039,7 @@ impl<'a> Parser<'a> {
         Ok(Expr::new(
             ExprKind::Reduce {
                 expr,
-                var,
+                pattern,
                 init,
                 update,
             },
@@ -930,13 +1055,7 @@ impl<'a> Parser<'a> {
         let expr = Box::new(self.parse_postfix_expr()?);
         self.expect(&TokenKind::As)?;
 
-        let var = if let TokenKind::Binding(name) = &self.current.kind {
-            let name = name.clone();
-            self.advance();
-            name
-        } else {
-            return Err(self.error("expected binding in foreach"));
-        };
+        let pattern = self.parse_pattern()?;
 
         self.expect(&TokenKind::LParen)?;
         let init = Box::new(self.parse_query()?);
@@ -956,7 +1075,7 @@ impl<'a> Parser<'a> {
         Ok(Expr::new(
             ExprKind::Foreach {
                 expr,
-                var,
+                pattern,
                 init,
                 update,
                 extract,

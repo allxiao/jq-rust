@@ -132,7 +132,7 @@ pub enum ExprKind {
     /// Reduce: reduce expr as $var (init; update)
     Reduce {
         expr: Box<Expr>,
-        var: String,
+        pattern: Pattern,
         init: Box<Expr>,
         update: Box<Expr>,
     },
@@ -140,7 +140,7 @@ pub enum ExprKind {
     /// Foreach: foreach expr as $var (init; update; extract)
     Foreach {
         expr: Box<Expr>,
-        var: String,
+        pattern: Pattern,
         init: Box<Expr>,
         update: Box<Expr>,
         extract: Option<Box<Expr>>,
