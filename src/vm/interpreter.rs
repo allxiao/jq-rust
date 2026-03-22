@@ -1732,18 +1732,19 @@ impl Interpreter {
 
                     if let Some((ref max_keys, _)) = max_item {
                         // Compare key vectors lexicographically
-                        let mut is_greater = false;
+                        // Use >= so that equal keys update to the last item
+                        let mut is_greater_or_equal = true;
                         for (k1, k2) in keys.iter().zip(max_keys.iter()) {
                             match k1.cmp(k2) {
-                                std::cmp::Ordering::Greater => {
-                                    is_greater = true;
+                                std::cmp::Ordering::Greater => break, // is_greater_or_equal stays true
+                                std::cmp::Ordering::Less => {
+                                    is_greater_or_equal = false;
                                     break;
                                 }
-                                std::cmp::Ordering::Less => break,
                                 std::cmp::Ordering::Equal => continue,
                             }
                         }
-                        if is_greater {
+                        if is_greater_or_equal {
                             max_item = Some((keys, item));
                         }
                     } else {

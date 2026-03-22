@@ -70,6 +70,7 @@ impl BuiltinRegistry {
         self.register("unique", 0, builtin_unique);
         self.register("flatten", 0, builtin_flatten);
         self.register("flatten", 1, builtin_flatten_depth);
+        self.register("transpose", 0, builtin_transpose);
         self.register("first", 0, builtin_first);
         self.register("last", 0, builtin_last);
         self.register("nth", 1, builtin_nth);
@@ -449,6 +450,45 @@ fn builtin_flatten_depth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn 
     }
 }
 
+fn builtin_transpose(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::Array(outer) => {
+            if outer.is_empty() {
+                return ok(Jv::from_vec(vec![]));
+            }
+
+            // Find the maximum length of inner arrays
+            let mut max_len = 0;
+            for item in outer.iter() {
+                if let Jv::Array(inner) = item {
+                    max_len = max_len.max(inner.len());
+                }
+            }
+
+            if max_len == 0 {
+                return ok(Jv::from_vec(vec![]));
+            }
+
+            // Build transposed result
+            let mut result = Vec::with_capacity(max_len);
+            for col in 0..max_len {
+                let mut row = Vec::with_capacity(outer.len());
+                for item in outer.iter() {
+                    if let Jv::Array(inner) = item {
+                        row.push(inner.get(col as i64).unwrap_or(Jv::Null));
+                    } else {
+                        row.push(Jv::Null);
+                    }
+                }
+                result.push(Jv::from_vec(row));
+            }
+
+            ok(Jv::from_vec(result))
+        }
+        _ => err(format!("{} cannot be transposed", input.type_name())),
+    }
+}
+
 fn builtin_first(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
@@ -653,14 +693,26 @@ fn builtin_toboolean(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Ite
 
 fn builtin_ascii_downcase(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => ok(Jv::String(s.to_lowercase())),
+        Jv::String(s) => {
+            // Only convert ASCII characters to lowercase
+            let result: String = s.as_str().chars().map(|c| {
+                if c.is_ascii() { c.to_ascii_lowercase() } else { c }
+            }).collect();
+            ok(Jv::string(result))
+        }
         _ => err(format!("{} has no ascii_downcase", input.type_name())),
     }
 }
 
 fn builtin_ascii_upcase(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => ok(Jv::String(s.to_uppercase())),
+        Jv::String(s) => {
+            // Only convert ASCII characters to uppercase
+            let result: String = s.as_str().chars().map(|c| {
+                if c.is_ascii() { c.to_ascii_uppercase() } else { c }
+            }).collect();
+            ok(Jv::string(result))
+        }
         _ => err(format!("{} has no ascii_upcase", input.type_name())),
     }
 }
