@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use jqr::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
+use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 
 /// Get the path to bundled test data
 fn get_test_data_dir() -> PathBuf {
@@ -154,7 +154,7 @@ fn run_test_file(
     if let Some(parent) = test_file.parent() {
         let modules_dir = parent.join("modules");
         if modules_dir.exists() {
-            jqr::set_module_search_path(Some(modules_dir));
+            jq_rust::set_module_search_path(Some(modules_dir));
         }
     }
 

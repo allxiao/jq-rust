@@ -22,13 +22,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: jqr ${{ github.ref_name }}
+          release_name: jq-rust ${{ github.ref_name }}
           draft: false
           prerelease: false
           body: |
-            ## jqr ${{ github.ref_name }}
+            ## jq-rust ${{ github.ref_name }}
 
             A Rust implementation of jq - lightweight and flexible command-line JSON processor.
+
+            Binary name: `jqr`
 
             ### Installation
 

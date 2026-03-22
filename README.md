@@ -1,10 +1,10 @@
-# jqr - A Rust Implementation of jq
+# jq-rust
 
-[![CI](https://github.com/allxiao/jqr/actions/workflows/ci.yml/badge.svg)](https://github.com/allxiao/jqr/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/jqr.svg)](https://crates.io/crates/jqr)
+[![CI](https://github.com/allxiao/jq-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/allxiao/jq-rust/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/jq-rust.svg)](https://crates.io/crates/jq-rust)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**jqr** is a complete Rust implementation of [jq](https://jqlang.org/), the lightweight and flexible command-line JSON processor.
+**jq-rust** is a complete Rust implementation of [jq](https://jqlang.org/), the lightweight and flexible command-line JSON processor. The binary is named `jqr` for a shorter command.
 
 ## Features
 
@@ -17,19 +17,19 @@
 
 ### From Releases
 
-Download the latest binary for your platform from the [releases page](https://github.com/allxiao/jqr/releases).
+Download the latest binary for your platform from the [releases page](https://github.com/allxiao/jq-rust/releases).
 
 ### From Source
 
 ```bash
-cargo install jqr
+cargo install jq-rust
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/allxiao/jqr.git
-cd jqr
+git clone https://github.com/allxiao/jq-rust.git
+cd jq-rust
 cargo build --release
 # Binary will be at ./target/release/jqr
 ```
@@ -114,11 +114,11 @@ jqr passes 100% of jq's official test suite (855 tests). It supports:
 
 ## Library Usage
 
-jqr can also be used as a Rust library:
+jq-rust can also be used as a Rust library:
 
 ```rust
-use jqr::{parse, interpret, Jv};
-use jqr::jv::parse_json;
+use jq_rust::{parse, interpret, Jv};
+use jq_rust::jv::parse_json;
 
 fn main() {
     // Parse a jq filter

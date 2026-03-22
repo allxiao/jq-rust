@@ -1,10 +1,10 @@
 [package]
-name = "jqr"
+name = "jq-rust"
 version = "0.1.0"
 edition = "2021"
 description = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
 license = "MIT"
-repository = "https://github.com/allxiao/jqr"
+repository = "https://github.com/allxiao/jq-rust"
 keywords = ["json", "jq", "cli", "filter", "query"]
 categories = ["command-line-utilities", "parsing"]
 readme = "README.md"
@@ -36,5 +36,5 @@ name = "run-tests"
 path = "src/bin/run_tests.rs"
 
 [lib]
-name = "jqr"
+name = "jq_rust"
 path = "src/lib.rs"

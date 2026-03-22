@@ -6,8 +6,8 @@ use std::io::{self, BufRead, Write};
 use std::process;
 
 use clap::Parser;
-use jqr::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
-use jqr::{parse, interpret, Jv};
+use jq_rust::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
+use jq_rust::{parse, interpret, Jv};
 
 /// jqr - commandline JSON processor (Rust implementation of jq)
 #[derive(Parser, Debug)]
@@ -116,7 +116,7 @@ fn main() {
 }
 
 fn run_filter(
-    expr: &jqr::Expr,
+    expr: &jq_rust::Expr,
     input: Jv,
     print_options: &JvPrintOptions,
     args: &Args,
@@ -160,7 +160,7 @@ fn run_filter(
 fn process_input(
     args: &Args,
     print_options: &JvPrintOptions,
-    expr: &jqr::Expr,
+    expr: &jq_rust::Expr,
     exit_code: &mut i32,
 ) -> Result<(), String> {
     let stdin = io::stdin();
