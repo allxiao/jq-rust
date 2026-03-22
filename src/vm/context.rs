@@ -14,6 +14,8 @@ pub enum Binding {
     Value(Jv),
     /// A filter/function binding (func arg)
     Filter(Rc<FuncDef>),
+    /// An expression binding (for filter parameters in function calls)
+    Expr(Rc<crate::parser::Expr>),
 }
 
 /// Execution context containing variable bindings and function definitions
@@ -88,6 +90,7 @@ impl BuiltinRegistry {
         // String functions
         self.register("tostring", 0, builtin_tostring);
         self.register("tonumber", 0, builtin_tonumber);
+        self.register("toboolean", 0, builtin_toboolean);
         self.register("ascii_downcase", 0, builtin_ascii_downcase);
         self.register("ascii_upcase", 0, builtin_ascii_upcase);
         self.register("ltrimstr", 1, builtin_ltrimstr);
@@ -232,6 +235,11 @@ impl Context {
         self.bindings.insert(name.to_string(), Binding::Filter(def));
     }
 
+    /// Bind an expression (for filter parameters)
+    pub fn bind_expr(&mut self, name: &str, expr: Rc<crate::parser::Expr>) {
+        self.bindings.insert(name.to_string(), Binding::Expr(expr));
+    }
+
     /// Look up a binding by name
     pub fn lookup(&self, name: &str) -> Option<Binding> {
         if let Some(binding) = self.bindings.get(name) {
@@ -241,6 +249,14 @@ impl Context {
             return parent.borrow().lookup(name);
         }
         None
+    }
+
+    /// Look up an expression binding
+    pub fn lookup_expr(&self, name: &str) -> Option<Rc<crate::parser::Expr>> {
+        match self.lookup(name) {
+            Some(Binding::Expr(e)) => Some(e),
+            _ => None,
+        }
     }
 
     /// Look up a value binding
@@ -588,6 +604,21 @@ fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
             }
         }
         _ => err(format!("{} cannot be parsed as number", input.type_name())),
+    }
+}
+
+fn builtin_toboolean(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    use crate::jv::print_jv;
+    match &input {
+        Jv::Bool(_) => ok(input),
+        Jv::String(s) => {
+            match s.as_str() {
+                "true" => ok(Jv::Bool(true)),
+                "false" => ok(Jv::Bool(false)),
+                _ => err(format!("string ({}) cannot be parsed as a boolean", print_jv(&input))),
+            }
+        }
+        _ => err(format!("{} ({}) cannot be parsed as a boolean", input.type_name(), print_jv(&input))),
     }
 }
 

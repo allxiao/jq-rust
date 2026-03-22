@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-20
-**Overall Progress**: ~65%
+**Overall Progress**: ~70%
 
 ## Session Log
 
@@ -150,6 +150,21 @@
 - [x] Normalized JSON comparison in tests (whitespace-insensitive)
 - [x] All 95 unit tests passing
 - [x] Integration tests: 295/527 jq.test cases passing (56%)
+
+### Session 10 (2026-03-20)
+- [x] Fixed generators in function arguments:
+  - Functions with generators now iterate over all values (e.g., `limit(5,7; range(9))`)
+  - `nth(n; expr)`, `skip(n; expr)`, `range()` all support generators
+  - Builtins with arguments iterate over all argument values
+- [x] Fixed object construction with generators:
+  - `{x: (1,2)}` now produces `{x:1}`, `{x:2}`
+- [x] Added slice assignment support: `.[2:4] = value`
+- [x] Added `del()` support for slices and comma expressions
+- [x] Added `add(expr)` generator form
+- [x] Fixed `skip()` to error on negative count
+- [x] Fixed recursive descent `..` to use proper depth-first order
+- [x] Fixed string slicing with negative indices
+- [x] Integration tests: 318/527 jq.test cases passing (60%)
 
 ## Phase Progress
 

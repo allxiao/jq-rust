@@ -168,6 +168,7 @@ impl Interpreter {
                             };
 
                             match &base_val {
+                                Jv::Null => Box::new(std::iter::once(Ok(Jv::Null))) as EvalResult,
                                 Jv::Array(arr) => {
                                     let result = arr.slice(start_val, end_val);
                                     Box::new(std::iter::once(Ok(Jv::Array(result)))) as EvalResult
@@ -924,7 +925,18 @@ impl Interpreter {
         // Bind parameters
         for (param, arg) in func.params.iter().zip(args.iter()) {
             if param.is_binding {
-                // Value parameter - evaluate and bind
+                // Value parameter ($var) - evaluate and bind
+                let mut arg_interp = Interpreter { ctx: ctx.clone() };
+                match arg_interp.eval_expr(arg, input.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => {
+                        child_ctx.borrow_mut().bind_value(&param.name, v);
+                    }
+                    Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                    None => return Box::new(std::iter::empty()),
+                }
+            } else {
+                // Filter parameter (non-$) - for now, evaluate and bind as value
+                // TODO: Full filter parameter support requires storing both expression and context
                 let mut arg_interp = Interpreter { ctx: ctx.clone() };
                 match arg_interp.eval_expr(arg, input.clone(), ctx.clone()).next() {
                     Some(Ok(v)) => {
@@ -934,7 +946,6 @@ impl Interpreter {
                     None => return Box::new(std::iter::empty()),
                 }
             }
-            // Filter parameters would need more complex handling
         }
 
         let mut inner = Interpreter { ctx: child_ctx.clone() };
