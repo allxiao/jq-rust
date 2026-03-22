@@ -1275,6 +1275,8 @@ impl Interpreter {
             ("gsub", 2) => return self.eval_sub(&args[0], &args[1], input, ctx, true),
             ("sub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, false),
             ("gsub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, true),
+            ("truncate_stream", 1) => return self.eval_truncate_stream(&args[0], input, ctx),
+            ("fromstream", 1) => return self.eval_fromstream(&args[0], input, ctx),
             ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
                 // These are handled as regular builtins
             }
@@ -4314,6 +4316,82 @@ impl Interpreter {
             }
             _ => Err("path element must be string or number".to_string()),
         }
+    }
+
+    /// Evaluate truncate_stream(stream_generator)
+    fn eval_truncate_stream(&mut self, stream_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // input is the depth
+        let depth = match &input {
+            Jv::Number(n) => n.as_i64().unwrap_or(0) as usize,
+            _ => return Box::new(std::iter::once(Err(format!("truncate_stream depth must be number, got {}", input.type_name())))),
+        };
+
+        // Evaluate the stream expression to get stream items
+        let stream_items: Vec<_> = self.eval_expr(stream_expr, Jv::Null, ctx.clone()).collect();
+
+        let results: Vec<_> = stream_items.into_iter().filter_map(|item| {
+            match item {
+                Ok(Jv::Array(arr)) if !arr.is_empty() => {
+                    // Get the path (first element)
+                    let path = match arr.get(0) {
+                        Some(Jv::Array(p)) => p,
+                        _ => return None,
+                    };
+
+                    // Skip if path is too short to truncate
+                    if path.len() <= depth {
+                        return None;
+                    }
+
+                    // Truncate the path
+                    let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
+
+                    if arr.len() == 1 {
+                        // End marker
+                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
+                    } else {
+                        // Value entry
+                        let value = arr.get(1).unwrap_or(Jv::Null);
+                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
+                    }
+                }
+                Err(e) => Some(Err(e)),
+                _ => None,
+            }
+        }).collect();
+
+        Box::new(results.into_iter())
+    }
+
+    /// Evaluate fromstream(stream_generator)
+    fn eval_fromstream(&mut self, stream_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // Evaluate the stream expression to get stream items
+        let stream_items: Vec<_> = self.eval_expr(stream_expr, input, ctx.clone()).collect();
+
+        let mut result = Jv::Null;
+
+        for item in stream_items {
+            match item {
+                Ok(Jv::Array(arr)) if arr.len() >= 2 => {
+                    // [path, value] - set the value at path
+                    let path = match arr.get(0) {
+                        Some(Jv::Array(p)) => p.iter().collect::<Vec<_>>(),
+                        _ => continue,
+                    };
+                    let value = arr.get(1).unwrap_or(Jv::Null);
+
+                    // Set value at path
+                    result = Self::setpath_at(&result, &path.iter().collect::<Vec<_>>(), value).unwrap_or(result);
+                }
+                Ok(Jv::Array(_)) => {
+                    // [path] - end marker, ignore
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+                _ => {}
+            }
+        }
+
+        Box::new(std::iter::once(Ok(result)))
     }
 
     /// Recursively collect all paths in a value

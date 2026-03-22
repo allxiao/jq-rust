@@ -100,6 +100,9 @@ impl BuiltinRegistry {
         self.register("delpaths", 1, builtin_delpaths);
         self.register("input", 0, builtin_input);
         self.register("inputs", 0, builtin_inputs);
+        self.register("tostream", 0, builtin_tostream);
+        self.register("truncate_stream", 0, builtin_truncate_stream);
+        self.register("fromstream", 0, builtin_fromstream);
 
         // Math functions
         self.register("floor", 0, builtin_floor);
@@ -1594,6 +1597,153 @@ fn builtin_paths(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterato
     collect_paths(&input, Vec::new(), &mut paths);
     let jv_paths: Vec<Jv> = paths.into_iter().map(Jv::from_vec).collect();
     Box::new(jv_paths.into_iter().map(Ok))
+}
+
+// ============ Streaming functions ============
+
+fn builtin_tostream(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    fn collect_stream(v: &Jv, current_path: Vec<Jv>, stream: &mut Vec<Jv>, last_leaf_path: &mut Option<Vec<Jv>>) {
+        match v {
+            Jv::Object(o) => {
+                let keys: Vec<_> = o.iter().map(|(k, v)| (k.clone(), v)).collect();
+                for (k, child) in keys {
+                    let mut new_path = current_path.clone();
+                    new_path.push(Jv::string(k));
+                    collect_stream(&child, new_path, stream, last_leaf_path);
+                }
+            }
+            Jv::Array(a) => {
+                for (i, child) in a.iter().enumerate() {
+                    let mut new_path = current_path.clone();
+                    new_path.push(Jv::from_i64(i as i64));
+                    collect_stream(&child, new_path, stream, last_leaf_path);
+                }
+            }
+            _ => {
+                // Leaf value: [path, value]
+                stream.push(Jv::from_vec(vec![Jv::from_vec(current_path.clone()), v.clone()]));
+                *last_leaf_path = Some(current_path);
+            }
+        }
+    }
+
+    let mut stream = Vec::new();
+    let mut last_leaf_path = None;
+    collect_stream(&input, Vec::new(), &mut stream, &mut last_leaf_path);
+
+    // Add end marker for the last leaf
+    if let Some(path) = last_leaf_path {
+        stream.push(Jv::from_vec(vec![Jv::from_vec(path)]));
+    }
+
+    Box::new(stream.into_iter().map(Ok))
+}
+
+fn builtin_truncate_stream(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // truncate_stream takes depth from input, stream from args
+    let depth = match &input {
+        Jv::Number(n) => n.as_i64().unwrap_or(0) as usize,
+        _ => return err(format!("truncate_stream depth must be number, got {}", input.type_name())),
+    };
+
+    // args contains the stream items
+    let results: Vec<_> = args.iter().filter_map(|item| {
+        match item {
+            Jv::Array(arr) if !arr.is_empty() => {
+                // Get the path (first element)
+                let path = match arr.get(0) {
+                    Some(Jv::Array(p)) => p,
+                    _ => return None,
+                };
+
+                // Truncate the path
+                if path.len() <= depth {
+                    return None; // Path is too short, skip
+                }
+
+                let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
+
+                if arr.len() == 1 {
+                    // End marker
+                    Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
+                } else {
+                    // Value entry
+                    let value = arr.get(1).unwrap_or(Jv::Null);
+                    Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
+                }
+            }
+            _ => None,
+        }
+    }).collect();
+
+    Box::new(results.into_iter())
+}
+
+fn builtin_fromstream(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // fromstream reconstructs a value from stream entries
+    // Each arg is a stream entry: [path, value] or [path] (end marker)
+    let mut result = Jv::Null;
+
+    for item in args {
+        match item {
+            Jv::Array(arr) if arr.len() >= 2 => {
+                // [path, value] - set the value at path
+                let path = match arr.get(0) {
+                    Some(Jv::Array(p)) => p.iter().collect::<Vec<_>>(),
+                    _ => continue,
+                };
+                let value = arr.get(1).unwrap_or(Jv::Null);
+
+                // Set value at path
+                result = set_at_path(result, &path, value);
+            }
+            Jv::Array(arr) if arr.len() == 1 => {
+                // [path] - end marker, ignore
+            }
+            _ => {}
+        }
+    }
+
+    ok(result)
+}
+
+fn set_at_path(current: Jv, path: &[Jv], value: Jv) -> Jv {
+    if path.is_empty() {
+        return value;
+    }
+
+    let key = &path[0];
+    let rest = &path[1..];
+
+    match key {
+        Jv::String(s) => {
+            let mut obj = match current {
+                Jv::Object(o) => o,
+                Jv::Null => crate::jv::JvObject::new(),
+                _ => return current, // Can't set on non-object
+            };
+            let child = obj.get(s.as_str()).unwrap_or(Jv::Null);
+            let new_child = set_at_path(child, rest, value);
+            obj.set(s.as_str(), new_child);
+            Jv::Object(obj)
+        }
+        Jv::Number(n) => {
+            if let Some(idx) = n.as_i64() {
+                let mut arr = match current {
+                    Jv::Array(a) => a,
+                    Jv::Null => crate::jv::JvArray::new(),
+                    _ => return current, // Can't set on non-array
+                };
+                let child = arr.get(idx).unwrap_or(Jv::Null);
+                let new_child = set_at_path(child, rest, value);
+                let _ = arr.set(idx, new_child);
+                Jv::Array(arr)
+            } else {
+                current
+            }
+        }
+        _ => current,
+    }
 }
 
 // ============ Min/Max functions ============

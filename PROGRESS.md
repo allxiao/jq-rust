@@ -463,16 +463,21 @@
 - [x] Fixed gsub to include empty match at end when pattern can match empty
   - Pattern `[^a-z]*(?<x>[a-z]*)` correctly matches empty string at end of "123foo456bar"
 - [x] Updated test results:
-  - jq.test: 506/527 (96.0%) - up from 95.8%
+  - jq.test: 506/527 (96.0%)
   - onig.test: 46/47 (97.9%) - only lookahead failure (unsupported by Rust regex)
   - manonig.test: 19/19 (100%)
-  - man.test: 226/230 (98.3%)
+  - man.test: 229/230 (99.6%) - up from 98.3%
   - base64.test: 9/10 (90%)
   - optional.test: 2/2 (100%)
+  - uri.test: 20/20 (100%)
+  - **Overall: 831/855 (97.1%)**
 - [x] Implemented `.. |= f` recursive descent update
-  - Also supports `(.. | filter) |= f` pattern
-  - Also supports `(.. | filter | path) |= f` pattern (e.g., `(.. | select(...) | .b) |= .[0]`)
-  - Updates are applied deepest-first to avoid path invalidation
+  - Also supports `(.. | filter) |= f` and `(.. | filter | path) |= f` patterns
+  - Apply updates deepest-first to avoid path invalidation
+- [x] Implemented streaming functions
+  - `tostream` converts value to path/value stream
+  - `truncate_stream(stream)` removes N levels from paths
+  - `fromstream(stream)` reconstructs value from stream
 
 ## Known Limitations
 
