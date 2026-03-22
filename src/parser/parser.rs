@@ -548,6 +548,15 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            // 'not' keyword as function call
+            TokenKind::Not => {
+                self.advance();
+                Ok(Expr::new(
+                    ExprKind::FunctionCall { name: "not".to_string(), args: Vec::new() },
+                    token.span,
+                ))
+            }
+
             // Variable reference
             TokenKind::Binding(name) => {
                 let name = name.clone();

@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-20
-**Overall Progress**: ~55%
+**Overall Progress**: ~60%
 
 ## Session Log
 
@@ -93,6 +93,26 @@
   - Negative array indexing in assignments
 - [x] All 95 unit tests passing
 
+### Session 5 (2026-03-20)
+- [x] Added control flow functions:
+  - until(cond; update) - apply update until condition is true
+  - while(cond; update) - output each value while condition is true
+  - repeat(expr) - repeatedly apply expression
+  - range(start; end; step) - range with custom step
+- [x] Added higher-order functions:
+  - walk(f) - recursively apply filter to all values
+  - with_entries(f) - to_entries | map(f) | from_entries
+  - map_values(f) - apply filter to each value in object/array
+- [x] Added path functions:
+  - path(expr) - return paths to selected values
+  - paths(filter) - return paths where filter is true
+  - pick(paths) - extract object with only specified paths
+- [x] Added env/$ENV - return environment variables as object
+- [x] Added splits(sep) - streaming version of split
+- [x] Fixed parser to handle `not` keyword as function call
+- [x] Fixed path() to handle comma expressions
+- [x] All 95 unit tests passing
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -114,7 +134,7 @@
 - [x] 4.2 Stack operations
 - [x] 4.3 Control flow
 
-### Phase 5: Built-in Functions (75%)
+### Phase 5: Built-in Functions (80%)
 - [x] 5.1 Core built-ins
 - [x] 5.2 Math functions (complete)
 - [x] 5.3 String functions
@@ -122,6 +142,9 @@
 - [x] 5.5 Object functions
 - [ ] 5.6 Date/Time functions
 - [x] 5.7 Format functions (@base64, @uri, etc.)
+- [x] 5.8 Regex functions (test, match, capture, sub, gsub)
+- [x] 5.9 Control flow functions (until, while, repeat)
+- [x] 5.10 Path functions (path, paths, pick, walk)
 - [x] 5.8 Regex functions (test, match, capture, sub, gsub)
 
 ### Phase 6: Advanced Features (25%)

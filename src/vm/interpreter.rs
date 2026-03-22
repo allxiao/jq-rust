@@ -708,6 +708,22 @@ impl Interpreter {
             ("del", 1) => return self.eval_del(&args[0], input, ctx),
             ("getpath", 1) => return self.eval_getpath(&args[0], input, ctx),
             ("isempty", 1) => return self.eval_isempty(&args[0], input, ctx),
+            ("until", 2) => return self.eval_until(&args[0], &args[1], input, ctx),
+            ("while", 2) => return self.eval_while(&args[0], &args[1], input, ctx),
+            ("repeat", 1) => return self.eval_repeat(&args[0], input, ctx),
+            ("range", 3) => return self.eval_range3(&args[0], &args[1], &args[2], input, ctx),
+            ("walk", 1) => return self.eval_walk(&args[0], input, ctx),
+            ("env", 0) => return self.eval_env(input),
+            ("$ENV", 0) => return self.eval_env(input),
+            ("splits", 1) => return self.eval_splits(&args[0], input, ctx),
+            ("with_entries", 1) => return self.eval_with_entries(&args[0], input, ctx),
+            ("map_values", 1) => return self.eval_map_values(&args[0], input, ctx),
+            ("path", 1) => return self.eval_path(&args[0], input, ctx),
+            ("paths", 1) => return self.eval_paths_filter(&args[0], input, ctx),
+            ("pick", 1) => return self.eval_pick(&args[0], input, ctx),
+            ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
+                // These are handled as regular builtins
+            }
             _ => {}
         }
 
@@ -1296,6 +1312,540 @@ impl Interpreter {
         let mut inner = Interpreter { ctx: ctx.clone() };
         let has_output = inner.eval_expr(filter, input, ctx).next().is_some();
         Box::new(std::iter::once(Ok(Jv::Bool(!has_output))))
+    }
+
+    fn eval_until(&mut self, cond: &Expr, update: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // until(cond; update) - apply update until cond is true
+        let mut current = input;
+        let max_iterations = 10000; // Safety limit
+
+        for _ in 0..max_iterations {
+            // Check condition
+            let mut cond_interp = Interpreter { ctx: ctx.clone() };
+            match cond_interp.eval_expr(cond, current.clone(), ctx.clone()).next() {
+                Some(Ok(v)) if v.is_truthy() => {
+                    return Box::new(std::iter::once(Ok(current)));
+                }
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                _ => {}
+            }
+
+            // Apply update
+            let mut update_interp = Interpreter { ctx: ctx.clone() };
+            match update_interp.eval_expr(update, current.clone(), ctx.clone()).next() {
+                Some(Ok(v)) => current = v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => return Box::new(std::iter::empty()),
+            }
+        }
+
+        Box::new(std::iter::once(Err("until: too many iterations".to_string())))
+    }
+
+    fn eval_while(&mut self, cond: &Expr, update: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // while(cond; update) - output each value while cond is true
+        let mut current = input;
+        let mut results = Vec::new();
+        let max_iterations = 10000;
+
+        for _ in 0..max_iterations {
+            // Check condition
+            let mut cond_interp = Interpreter { ctx: ctx.clone() };
+            match cond_interp.eval_expr(cond, current.clone(), ctx.clone()).next() {
+                Some(Ok(v)) if !v.is_truthy() => break,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                _ => {}
+            }
+
+            results.push(Ok(current.clone()));
+
+            // Apply update
+            let mut update_interp = Interpreter { ctx: ctx.clone() };
+            match update_interp.eval_expr(update, current.clone(), ctx.clone()).next() {
+                Some(Ok(v)) => current = v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => break,
+            }
+        }
+
+        Box::new(results.into_iter())
+    }
+
+    fn eval_repeat(&mut self, expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // repeat(f) - repeatedly apply f, yielding each result
+        let expr_clone = expr.clone();
+        let ctx_clone = ctx.clone();
+        let mut current = input;
+
+        // Use an iterator that repeatedly applies expr
+        struct RepeatIter {
+            expr: Expr,
+            ctx: Rc<RefCell<Context>>,
+            current: Jv,
+            count: usize,
+        }
+
+        impl Iterator for RepeatIter {
+            type Item = Result<Jv, String>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.count > 10000 {
+                    return Some(Err("repeat: too many iterations".to_string()));
+                }
+                self.count += 1;
+
+                let result = self.current.clone();
+
+                // Apply expression to get next value
+                let mut interp = Interpreter { ctx: self.ctx.clone() };
+                match interp.eval_expr(&self.expr, self.current.clone(), self.ctx.clone()).next() {
+                    Some(Ok(v)) => {
+                        self.current = v;
+                        Some(Ok(result))
+                    }
+                    Some(Err(e)) => Some(Err(e)),
+                    None => None,
+                }
+            }
+        }
+
+        Box::new(RepeatIter {
+            expr: expr_clone,
+            ctx: ctx_clone,
+            current,
+            count: 0,
+        })
+    }
+
+    fn eval_range3(&mut self, start_expr: &Expr, end_expr: &Expr, step_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // range(start; end; step)
+        let mut interp = Interpreter { ctx: ctx.clone() };
+
+        let start = match interp.eval_expr(start_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v.as_f64().unwrap_or(0.0),
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let end = match interp.eval_expr(end_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v.as_f64().unwrap_or(0.0),
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        let step = match interp.eval_expr(step_expr, input, ctx).next() {
+            Some(Ok(v)) => v.as_f64().unwrap_or(1.0),
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        if step == 0.0 {
+            return Box::new(std::iter::empty());
+        }
+
+        let mut results = Vec::new();
+        let mut current = start;
+
+        if step > 0.0 {
+            while current < end {
+                results.push(Ok(Jv::from_f64(current)));
+                current += step;
+            }
+        } else {
+            while current > end {
+                results.push(Ok(Jv::from_f64(current)));
+                current += step;
+            }
+        }
+
+        Box::new(results.into_iter())
+    }
+
+    fn eval_walk(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // walk(f) - recursively apply f to all values (depth-first, bottom-up)
+        fn walk_value(interp: &mut Interpreter, filter: &Expr, value: Jv, ctx: Rc<RefCell<Context>>) -> Result<Jv, String> {
+            // First, recursively walk children
+            let walked = match &value {
+                Jv::Array(arr) => {
+                    let mut new_arr = Vec::new();
+                    for item in arr.iter() {
+                        new_arr.push(walk_value(interp, filter, item, ctx.clone())?);
+                    }
+                    Jv::from_vec(new_arr)
+                }
+                Jv::Object(obj) => {
+                    let mut new_obj = crate::jv::JvObject::new();
+                    for (k, v) in obj.iter() {
+                        let walked_v = walk_value(interp, filter, v, ctx.clone())?;
+                        new_obj.set(&k, walked_v);
+                    }
+                    Jv::Object(new_obj)
+                }
+                _ => value.clone(),
+            };
+
+            // Then apply filter to the walked value
+            let mut filter_interp = Interpreter { ctx: ctx.clone() };
+            match filter_interp.eval_expr(filter, walked, ctx).next() {
+                Some(Ok(v)) => Ok(v),
+                Some(Err(e)) => Err(e),
+                None => Ok(Jv::Null),
+            }
+        }
+
+        match walk_value(self, filter, input, ctx) {
+            Ok(v) => Box::new(std::iter::once(Ok(v))),
+            Err(e) => Box::new(std::iter::once(Err(e))),
+        }
+    }
+
+    fn eval_env(&mut self, _input: Jv) -> EvalResult {
+        // Return environment variables as object
+        let mut obj = crate::jv::JvObject::new();
+        for (key, value) in std::env::vars() {
+            obj.set(&key, Jv::string(value));
+        }
+        Box::new(std::iter::once(Ok(Jv::Object(obj))))
+    }
+
+    fn eval_splits(&mut self, sep_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // splits(sep) - stream version of split
+        let sep = match self.eval_expr(sep_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(Jv::String(s))) => s.as_str().to_string(),
+            Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("splits requires string separator, got {}", v.type_name())))),
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        match &input {
+            Jv::String(s) => {
+                let parts: Vec<Jv> = s.as_str().split(&sep).map(|p| Jv::string(p)).collect();
+                Box::new(parts.into_iter().map(Ok))
+            }
+            _ => Box::new(std::iter::once(Err(format!("splits requires string input, got {}", input.type_name())))),
+        }
+    }
+
+    fn eval_with_entries(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // with_entries(f) = to_entries | map(f) | from_entries
+        match &input {
+            Jv::Object(obj) => {
+                // Convert to entries array
+                let mut entries = Vec::new();
+                for (k, v) in obj.iter() {
+                    let mut entry = crate::jv::JvObject::new();
+                    entry.set("key", Jv::string(k));
+                    entry.set("value", v);
+                    entries.push(Jv::Object(entry));
+                }
+
+                // Apply filter to each entry
+                let mut new_entries = Vec::new();
+                for entry in entries {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    for result in inner.eval_expr(filter, entry, ctx.clone()) {
+                        match result {
+                            Ok(v) => new_entries.push(v),
+                            Err(e) => return Box::new(std::iter::once(Err(e))),
+                        }
+                    }
+                }
+
+                // Convert back from entries
+                let mut result_obj = crate::jv::JvObject::new();
+                for entry in new_entries {
+                    if let Jv::Object(e) = entry {
+                        if let (Some(Jv::String(key)), Some(value)) = (e.get("key"), e.get("value")) {
+                            result_obj.set(key.as_str(), value);
+                        }
+                    }
+                }
+                Box::new(std::iter::once(Ok(Jv::Object(result_obj))))
+            }
+            _ => Box::new(std::iter::once(Err(format!("with_entries requires object, got {}", input.type_name())))),
+        }
+    }
+
+    fn eval_map_values(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // map_values(f) applies f to each value in an object or array
+        match &input {
+            Jv::Object(obj) => {
+                let mut result_obj = crate::jv::JvObject::new();
+                for (k, v) in obj.iter() {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    match inner.eval_expr(filter, v, ctx.clone()).next() {
+                        Some(Ok(new_v)) => result_obj.set(&k, new_v),
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        None => {} // Skip if filter produces no output
+                    }
+                }
+                Box::new(std::iter::once(Ok(Jv::Object(result_obj))))
+            }
+            Jv::Array(arr) => {
+                let mut result = Vec::new();
+                for item in arr.iter() {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    match inner.eval_expr(filter, item, ctx.clone()).next() {
+                        Some(Ok(v)) => result.push(v),
+                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                        None => {} // Skip
+                    }
+                }
+                Box::new(std::iter::once(Ok(Jv::from_vec(result))))
+            }
+            Jv::Null => Box::new(std::iter::once(Ok(Jv::Null))),
+            _ => Box::new(std::iter::once(Err(format!("map_values requires object or array, got {}", input.type_name())))),
+        }
+    }
+
+    fn eval_path(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // path(expr) returns the path(s) to the value(s) selected by expr
+        fn collect_paths(expr: &Expr, input: &Jv, ctx: Rc<RefCell<Context>>, current_path: Vec<Jv>) -> Vec<Vec<Jv>> {
+            let mut paths = Vec::new();
+
+            match &expr.kind {
+                ExprKind::Identity => {
+                    paths.push(current_path);
+                }
+                ExprKind::Field(name) => {
+                    let mut new_path = current_path;
+                    new_path.push(Jv::string(name.clone()));
+                    paths.push(new_path);
+                }
+                ExprKind::Index { expr: base_expr, index, .. } => {
+                    // First collect paths from base expression
+                    let base_paths = collect_paths(base_expr, input, ctx.clone(), current_path);
+                    for base_path in base_paths {
+                        // Then add the index to each base path
+                        // Evaluate the index
+                        let mut interp = Interpreter { ctx: ctx.clone() };
+                        if let Some(Ok(idx)) = interp.eval_expr(index, input.clone(), ctx.clone()).next() {
+                            let mut new_path = base_path;
+                            new_path.push(idx);
+                            paths.push(new_path);
+                        }
+                    }
+                }
+                ExprKind::Pipe(left, right) => {
+                    // For pipes, we need to traverse left first, then right
+                    let left_paths = collect_paths(left, input, ctx.clone(), current_path);
+                    for path in left_paths {
+                        // Navigate to the value at this path, then continue with right
+                        let value_at_path = get_value_at_path(input, &path);
+                        let right_paths = collect_paths(right, &value_at_path, ctx.clone(), path);
+                        paths.extend(right_paths);
+                    }
+                }
+                ExprKind::Iterator { expr: base_expr, .. } => {
+                    // First get the base value for the iterator
+                    let base_value = if let ExprKind::Identity = base_expr.kind {
+                        input.clone()
+                    } else {
+                        // For complex base expressions, we'd need to navigate
+                        input.clone()
+                    };
+                    // For .[], enumerate all paths
+                    match &base_value {
+                        Jv::Array(arr) => {
+                            for i in 0..arr.len() {
+                                let mut new_path = current_path.clone();
+                                new_path.push(Jv::from_i64(i as i64));
+                                paths.push(new_path);
+                            }
+                        }
+                        Jv::Object(obj) => {
+                            for (k, _) in obj.iter() {
+                                let mut new_path = current_path.clone();
+                                new_path.push(Jv::string(k));
+                                paths.push(new_path);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                ExprKind::Optional(inner) => {
+                    // Try to get paths from inner expression
+                    paths.extend(collect_paths(inner, input, ctx, current_path));
+                }
+                ExprKind::Comma(left, right) => {
+                    // For comma, collect paths from both sides
+                    paths.extend(collect_paths(left, input, ctx.clone(), current_path.clone()));
+                    paths.extend(collect_paths(right, input, ctx, current_path));
+                }
+                _ => {
+                    // For other expressions, just return the current path
+                    paths.push(current_path);
+                }
+            }
+
+            paths
+        }
+
+        fn get_value_at_path(input: &Jv, path: &[Jv]) -> Jv {
+            let mut current = input.clone();
+            for p in path {
+                match (&current, p) {
+                    (Jv::Object(obj), Jv::String(key)) => {
+                        current = obj.get(key.as_str()).unwrap_or(Jv::Null);
+                    }
+                    (Jv::Array(arr), Jv::Number(n)) => {
+                        if let Some(idx) = n.as_i64() {
+                            current = arr.get(idx).unwrap_or(Jv::Null);
+                        } else {
+                            return Jv::Null;
+                        }
+                    }
+                    _ => return Jv::Null,
+                }
+            }
+            current
+        }
+
+        let all_paths = collect_paths(filter, &input, ctx, Vec::new());
+        let results: Vec<_> = all_paths.into_iter()
+            .map(|p| Ok(Jv::from_vec(p)))
+            .collect();
+        Box::new(results.into_iter())
+    }
+
+    fn eval_paths_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // paths(f) - returns paths to values where f is true
+        fn collect_all_paths(value: &Jv, current_path: Vec<Jv>, results: &mut Vec<(Vec<Jv>, Jv)>) {
+            results.push((current_path.clone(), value.clone()));
+
+            match value {
+                Jv::Array(arr) => {
+                    for (i, item) in arr.iter().enumerate() {
+                        let mut new_path = current_path.clone();
+                        new_path.push(Jv::from_i64(i as i64));
+                        collect_all_paths(&item, new_path, results);
+                    }
+                }
+                Jv::Object(obj) => {
+                    for (k, v) in obj.iter() {
+                        let mut new_path = current_path.clone();
+                        new_path.push(Jv::string(k));
+                        collect_all_paths(&v, new_path, results);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut all_values = Vec::new();
+        collect_all_paths(&input, Vec::new(), &mut all_values);
+
+        let mut matching_paths = Vec::new();
+        for (path, value) in all_values {
+            if path.is_empty() {
+                continue; // Skip root
+            }
+            let mut inner = Interpreter { ctx: ctx.clone() };
+            match inner.eval_expr(filter, value, ctx.clone()).next() {
+                Some(Ok(v)) if v.is_truthy() => {
+                    matching_paths.push(Ok(Jv::from_vec(path)));
+                }
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                _ => {}
+            }
+        }
+
+        Box::new(matching_paths.into_iter())
+    }
+
+    fn eval_pick(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // pick(path_exprs) - returns object with only the specified paths
+        // First, get all the paths from the filter expression
+        let path_results = self.eval_path(filter, input.clone(), ctx.clone());
+
+        // Collect all paths
+        let mut paths = Vec::new();
+        for result in path_results {
+            match result {
+                Ok(path_arr) => {
+                    if let Jv::Array(arr) = path_arr {
+                        let path: Vec<Jv> = arr.iter().collect();
+                        paths.push(path);
+                    }
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            }
+        }
+
+        // Build a new object/value with only the picked paths
+        fn set_at_path(target: &mut Jv, path: &[Jv], value: Jv) {
+            if path.is_empty() {
+                *target = value;
+                return;
+            }
+
+            let key = &path[0];
+            let rest = &path[1..];
+
+            match key {
+                Jv::String(k) => {
+                    let k = k.as_str();
+                    if let Jv::Object(obj) = target {
+                        if rest.is_empty() {
+                            obj.set(k, value);
+                        } else {
+                            let existing = obj.get(k).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
+                            let mut nested = existing;
+                            set_at_path(&mut nested, rest, value);
+                            obj.set(k, nested);
+                        }
+                    }
+                }
+                Jv::Number(n) => {
+                    if let (Some(idx), Jv::Array(arr)) = (n.as_i64(), target) {
+                        let idx = idx as usize;
+                        // Ensure array is big enough
+                        while arr.len() <= idx {
+                            arr.push(Jv::Null);
+                        }
+                        if rest.is_empty() {
+                            arr.set(idx as i64, value);
+                        } else {
+                            let existing = arr.get(idx as i64).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
+                            let mut nested = existing;
+                            set_at_path(&mut nested, rest, value);
+                            arr.set(idx as i64, nested);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn get_at_path(source: &Jv, path: &[Jv]) -> Option<Jv> {
+            if path.is_empty() {
+                return Some(source.clone());
+            }
+
+            let key = &path[0];
+            let rest = &path[1..];
+
+            match (source, key) {
+                (Jv::Object(obj), Jv::String(k)) => {
+                    obj.get(k.as_str()).and_then(|v| get_at_path(&v, rest))
+                }
+                (Jv::Array(arr), Jv::Number(n)) => {
+                    n.as_i64().and_then(|idx| arr.get(idx)).and_then(|v| get_at_path(&v, rest))
+                }
+                _ => None,
+            }
+        }
+
+        // Start with an empty object (pick typically returns an object)
+        let mut result = Jv::Object(crate::jv::JvObject::new());
+
+        for path in paths {
+            if let Some(value) = get_at_path(&input, &path) {
+                set_at_path(&mut result, &path, value);
+            }
+        }
+
+        Box::new(std::iter::once(Ok(result)))
     }
 
     fn eval_string_interp(&mut self, parts: &[StringPart], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
