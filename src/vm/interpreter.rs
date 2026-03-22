@@ -396,6 +396,10 @@ impl Interpreter {
             }
 
             ExprKind::Variable(name) => {
+                // Special case for $ENV
+                if name == "ENV" {
+                    return self.eval_env(input);
+                }
                 match ctx.borrow().lookup_value(name) {
                     Some(v) => Box::new(std::iter::once(Ok(v))),
                     None => Box::new(std::iter::once(Err(format!("variable ${} is not defined", name)))),

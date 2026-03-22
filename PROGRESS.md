@@ -121,6 +121,10 @@
 - [x] Added all(filter), all(gen; filter) variants
 - [x] All 95 unit tests passing
 
+### Session 7 (2026-03-20)
+- [x] Fixed $ENV to work as a special variable
+- [x] All 95 unit tests passing
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
