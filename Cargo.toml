@@ -1,6 +1,24 @@
 [package]
 name = "jq-rust"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
+license = "MIT"
+repository = "https://github.com/jqlang/jq"
+keywords = ["json", "jq", "cli", "filter", "query"]
+categories = ["command-line-utilities", "parsing"]
 
 [dependencies]
+thiserror = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[[bin]]
+name = "jq"
+path = "src/main.rs"
+
+[lib]
+name = "jq_rust"
+path = "src/lib.rs"
