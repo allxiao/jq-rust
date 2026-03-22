@@ -272,7 +272,21 @@ impl<'a> Parser<'a> {
 
         while self.check(&TokenKind::Comma) {
             self.advance();
-            let right = self.parse_assign_expr()?;
+            // Allow def after comma
+            let right = if self.check(&TokenKind::Def) {
+                let def = self.parse_func_def()?;
+                let body = self.parse_query()?;
+                let span = def.span.merge(body.span);
+                Expr::new(
+                    ExprKind::LocalDef {
+                        def,
+                        body: Box::new(body),
+                    },
+                    span,
+                )
+            } else {
+                self.parse_assign_expr()?
+            };
             let span = expr.span.merge(right.span);
             expr = Expr::new(ExprKind::Comma(Box::new(expr), Box::new(right)), span);
         }

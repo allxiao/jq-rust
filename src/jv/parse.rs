@@ -46,19 +46,76 @@ impl<'a> JsonParser<'a> {
         self.skip_whitespace();
 
         match self.peek() {
-            Some(b'n') => self.parse_null(),
+            Some(b'n') => {
+                // Could be null or NaN
+                if self.starts_with("nan") || self.starts_with("NaN") {
+                    self.parse_nan()
+                } else {
+                    self.parse_null()
+                }
+            }
+            Some(b'N') => self.parse_nan(),
             Some(b't') => self.parse_true(),
             Some(b'f') => self.parse_false(),
             Some(b'"') => self.parse_string(),
             Some(b'[') => self.parse_array(),
             Some(b'{') => self.parse_object(),
-            Some(b'-') | Some(b'0'..=b'9') => self.parse_number(),
+            Some(b'-') => {
+                // Could be negative number, -Infinity, or -NaN
+                if self.starts_with("-Infinity") {
+                    self.parse_neg_infinity()
+                } else if self.starts_with("-NaN") || self.starts_with("-nan") {
+                    self.parse_neg_nan()
+                } else {
+                    self.parse_number()
+                }
+            }
+            Some(b'0'..=b'9') => self.parse_number(),
+            Some(b'I') => self.parse_infinity(),
             Some(c) => Err(JqError::Parse(format!(
                 "unexpected character '{}' at position {}",
                 *c as char, self.pos
             ))),
             None => Err(JqError::Parse("unexpected end of input".to_string())),
         }
+    }
+
+    fn starts_with(&self, s: &str) -> bool {
+        let bytes = s.as_bytes();
+        self.input.get(self.pos..self.pos + bytes.len()) == Some(bytes)
+    }
+
+    fn parse_infinity(&mut self) -> Result<Jv, JqError> {
+        self.expect_literal("Infinity")?;
+        // jq represents Infinity as f64::MAX
+        Ok(Jv::Number(JvNumber::from_f64(f64::MAX)))
+    }
+
+    fn parse_neg_infinity(&mut self) -> Result<Jv, JqError> {
+        self.expect_literal("-Infinity")?;
+        // jq represents -Infinity as -f64::MAX
+        Ok(Jv::Number(JvNumber::from_f64(-f64::MAX)))
+    }
+
+    fn parse_nan(&mut self) -> Result<Jv, JqError> {
+        // Accept both "nan" and "NaN"
+        if self.starts_with("NaN") {
+            self.expect_literal("NaN")?;
+        } else {
+            self.expect_literal("nan")?;
+        }
+        // jq represents NaN as null
+        Ok(Jv::Null)
+    }
+
+    fn parse_neg_nan(&mut self) -> Result<Jv, JqError> {
+        if self.starts_with("-NaN") {
+            self.expect_literal("-NaN")?;
+        } else {
+            self.expect_literal("-nan")?;
+        }
+        // jq represents -NaN as null too
+        Ok(Jv::Null)
     }
 
     fn parse_null(&mut self) -> Result<Jv, JqError> {
