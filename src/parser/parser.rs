@@ -1206,11 +1206,12 @@ impl<'a> Parser<'a> {
         let start = self.current.span;
         self.expect(&TokenKind::Try)?;
 
-        let expr = Box::new(self.parse_postfix_expr()?);
+        // Allow unary expressions (like -.? for negation with optional) in try body
+        let expr = Box::new(self.parse_unary_expr()?);
 
         let catch = if self.check(&TokenKind::Catch) {
             self.advance();
-            Some(Box::new(self.parse_postfix_expr()?))
+            Some(Box::new(self.parse_unary_expr()?))
         } else {
             None
         };

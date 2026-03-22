@@ -4000,9 +4000,12 @@ fn format_value_for_error(v: &Jv) -> String {
     match v {
         Jv::String(s) => {
             let str_val = s.as_str();
-            if str_val.len() > 24 {
+            // Count characters, not bytes, to handle UTF-8 properly
+            let char_count: usize = str_val.chars().count();
+            if char_count > 24 {
                 // jq truncates strings to 24 chars (no closing quote) + "..."
-                format!("string (\"{}...\")", &str_val[..24].replace('"', "\\\""))
+                let truncated: String = str_val.chars().take(24).collect();
+                format!("string (\"{}...\")", truncated.replace('"', "\\\""))
             } else {
                 format!("string (\"{}\")", str_val.replace('"', "\\\""))
             }
