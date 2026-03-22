@@ -187,8 +187,9 @@ impl JvArray {
 
     /// Flatten the array one level
     pub fn flatten(&self, depth: Option<usize>) -> JvArray {
-        let depth = depth.unwrap_or(1);
-        if depth == 0 {
+        // None means unlimited depth (fully flatten)
+        // Some(0) means no flattening
+        if depth == Some(0) {
             return self.clone();
         }
 
@@ -198,12 +199,10 @@ impl JvArray {
         for item in arr.iter() {
             match item {
                 Jv::Array(inner_arr) => {
-                    if depth > 1 {
-                        let flattened = inner_arr.flatten(Some(depth - 1));
-                        result.extend(flattened.inner.borrow().iter().cloned());
-                    } else {
-                        result.extend(inner_arr.inner.borrow().iter().cloned());
-                    }
+                    // Recursively flatten with decremented depth (or None for unlimited)
+                    let new_depth = depth.map(|d| d - 1);
+                    let flattened = inner_arr.flatten(new_depth);
+                    result.extend(flattened.inner.borrow().iter().cloned());
                 }
                 _ => result.push(item.clone()),
             }

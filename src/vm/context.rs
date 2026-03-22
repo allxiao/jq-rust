@@ -101,6 +101,10 @@ impl BuiltinRegistry {
         self.register("ascii_upcase", 0, builtin_ascii_upcase);
         self.register("ltrimstr", 1, builtin_ltrimstr);
         self.register("rtrimstr", 1, builtin_rtrimstr);
+        self.register("trimstr", 1, builtin_trimstr);
+        self.register("trim", 0, builtin_trim);
+        self.register("ltrim", 0, builtin_ltrim);
+        self.register("rtrim", 0, builtin_rtrim);
         self.register("startswith", 1, builtin_startswith);
         self.register("endswith", 1, builtin_endswith);
         self.register("split", 1, builtin_split);
@@ -379,16 +383,10 @@ fn builtin_keys_unsorted(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn
 }
 
 fn builtin_values(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // values is a type selector that passes through everything except null
     match &input {
-        Jv::Object(o) => {
-            let vals: Vec<_> = o.values().collect();
-            Box::new(vals.into_iter().map(Ok))
-        }
-        Jv::Array(a) => {
-            let vals: Vec<_> = a.iter().collect();
-            Box::new(vals.into_iter().map(Ok))
-        }
-        _ => err(format!("{} has no values", input.type_name())),
+        Jv::Null => Box::new(std::iter::empty()),
+        _ => ok(input),
     }
 }
 
@@ -443,7 +441,7 @@ fn builtin_flatten(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
 fn builtin_flatten_depth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let depth = match args.first().and_then(|v| v.as_i64()) {
         Some(d) if d >= 0 => d as usize,
-        _ => return err("flatten depth must be a non-negative integer".to_string()),
+        _ => return err("flatten depth must not be negative".to_string()),
     };
     match &input {
         Jv::Array(a) => ok(Jv::Array(a.flatten(Some(depth)))),
@@ -685,6 +683,65 @@ fn builtin_rtrimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
     }
 }
 
+fn builtin_trimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match (&input, args.first()) {
+        (Jv::String(s), Some(Jv::String(t))) => {
+            // trimstr removes from both ends
+            let result = s.ltrimstr(t.as_str());
+            ok(Jv::String(result.rtrimstr(t.as_str())))
+        }
+        _ => err("trimstr requires string arguments".to_string()),
+    }
+}
+
+// Unicode whitespace characters that jq considers as whitespace for trim
+fn is_jq_whitespace(c: char) -> bool {
+    matches!(c,
+        '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' | // ASCII whitespace
+        '\u{0085}' | // NEXT LINE
+        '\u{00A0}' | // NO-BREAK SPACE
+        '\u{1680}' | // OGHAM SPACE MARK
+        '\u{2000}' | '\u{2001}' | '\u{2002}' | '\u{2003}' | '\u{2004}' |
+        '\u{2005}' | '\u{2006}' | '\u{2007}' | '\u{2008}' | '\u{2009}' |
+        '\u{200A}' | // various width spaces
+        '\u{2028}' | // LINE SEPARATOR
+        '\u{2029}' | // PARAGRAPH SEPARATOR
+        '\u{202F}' | // NARROW NO-BREAK SPACE
+        '\u{205F}' | // MEDIUM MATHEMATICAL SPACE
+        '\u{3000}'   // IDEOGRAPHIC SPACE
+    )
+}
+
+fn builtin_trim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            let trimmed = s.as_str().trim_matches(is_jq_whitespace);
+            ok(Jv::string(trimmed.to_string()))
+        }
+        _ => err("trim input must be a string".to_string()),
+    }
+}
+
+fn builtin_ltrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            let trimmed = s.as_str().trim_start_matches(is_jq_whitespace);
+            ok(Jv::string(trimmed.to_string()))
+        }
+        _ => err("trim input must be a string".to_string()),
+    }
+}
+
+fn builtin_rtrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    match &input {
+        Jv::String(s) => {
+            let trimmed = s.as_str().trim_end_matches(is_jq_whitespace);
+            ok(Jv::string(trimmed.to_string()))
+        }
+        _ => err("trim input must be a string".to_string()),
+    }
+}
+
 fn builtin_startswith(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::String(s), Some(Jv::String(prefix))) => {
@@ -749,7 +806,8 @@ fn builtin_has(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<I
                 let idx = if idx < 0 { len + idx } else { idx };
                 ok(Jv::Bool(idx >= 0 && idx < len))
             } else {
-                err("array index must be integer".to_string())
+                // nan, inf, or non-integer returns false
+                ok(Jv::Bool(false))
             }
         }
         _ => err("has requires object/string or array/number".to_string()),
@@ -1030,7 +1088,7 @@ fn builtin_min(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     match &input {
         Jv::Array(a) => {
             if a.is_empty() {
-                return err("min requires non-empty array".to_string());
+                return ok(Jv::Null);
             }
             let mut min = a.get(0).unwrap();
             for item in a.iter().skip(1) {
@@ -1048,7 +1106,7 @@ fn builtin_max(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     match &input {
         Jv::Array(a) => {
             if a.is_empty() {
-                return err("max requires non-empty array".to_string());
+                return ok(Jv::Null);
             }
             let mut max = a.get(0).unwrap();
             for item in a.iter().skip(1) {
@@ -1075,14 +1133,45 @@ fn builtin_indices(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
             let haystack = s.as_str();
             let needle = sub.as_str();
             let mut indices = Vec::new();
-            let mut start = 0;
-            while let Some(pos) = haystack[start..].find(needle) {
-                indices.push(Jv::from_i64((start + pos) as i64));
-                start = start + pos + 1;
+            let mut byte_start = 0;
+            while let Some(byte_pos) = haystack[byte_start..].find(needle) {
+                // Convert byte position to character position
+                let abs_byte_pos = byte_start + byte_pos;
+                let char_pos = haystack[..abs_byte_pos].chars().count();
+                indices.push(Jv::from_i64(char_pos as i64));
+                // Move past the match (at least 1 byte for next search)
+                byte_start = abs_byte_pos + 1;
+                // Skip past full UTF-8 char boundaries if needed
+                while byte_start < haystack.len() && !haystack.is_char_boundary(byte_start) {
+                    byte_start += 1;
+                }
+            }
+            ok(Jv::from_vec(indices))
+        }
+        (Jv::Array(a), Jv::Array(pattern)) => {
+            // Search for subarray pattern
+            let mut indices = Vec::new();
+            let pattern_len = pattern.len();
+            if pattern_len == 0 {
+                return ok(Jv::from_vec(indices));
+            }
+            let arr_len = a.len();
+            for i in 0..=arr_len.saturating_sub(pattern_len) {
+                let mut matches = true;
+                for j in 0..pattern_len {
+                    if a.get((i + j) as i64) != pattern.get(j as i64) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if matches {
+                    indices.push(Jv::from_i64(i as i64));
+                }
             }
             ok(Jv::from_vec(indices))
         }
         (Jv::Array(a), _) => {
+            // Search for single element
             let mut indices = Vec::new();
             for (i, item) in a.iter().enumerate() {
                 if &item == target {
@@ -1103,8 +1192,13 @@ fn builtin_index(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
 
     match (&input, target) {
         (Jv::String(s), Jv::String(sub)) => {
-            match s.as_str().find(sub.as_str()) {
-                Some(pos) => ok(Jv::from_i64(pos as i64)),
+            let haystack = s.as_str();
+            match haystack.find(sub.as_str()) {
+                Some(byte_pos) => {
+                    // Convert byte position to character position
+                    let char_pos = haystack[..byte_pos].chars().count();
+                    ok(Jv::from_i64(char_pos as i64))
+                }
                 None => ok(Jv::Null),
             }
         }
@@ -1128,8 +1222,13 @@ fn builtin_rindex(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
 
     match (&input, target) {
         (Jv::String(s), Jv::String(sub)) => {
-            match s.as_str().rfind(sub.as_str()) {
-                Some(pos) => ok(Jv::from_i64(pos as i64)),
+            let haystack = s.as_str();
+            match haystack.rfind(sub.as_str()) {
+                Some(byte_pos) => {
+                    // Convert byte position to character position
+                    let char_pos = haystack[..byte_pos].chars().count();
+                    ok(Jv::from_i64(char_pos as i64))
+                }
                 None => ok(Jv::Null),
             }
         }
@@ -1170,11 +1269,14 @@ fn builtin_from_entries(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn 
             let mut obj = crate::jv::JvObject::new();
             for entry in a.iter() {
                 if let Jv::Object(e) = entry {
-                    // Support both {key, value} and {name, value} and {k, v}
+                    // Support both {key, value}, {Key, Value}, {name, value}, {Name, Value}, {k, v}
                     let key = e.get("key")
+                        .or_else(|| e.get("Key"))
                         .or_else(|| e.get("name"))
+                        .or_else(|| e.get("Name"))
                         .or_else(|| e.get("k"));
                     let value = e.get("value")
+                        .or_else(|| e.get("Value"))
                         .or_else(|| e.get("v"))
                         .unwrap_or(Jv::Null);
 

@@ -87,6 +87,7 @@ impl Interpreter {
                 let index_expr = index.clone();
                 let base_expr = base.clone();
                 let ctx_clone = ctx.clone();
+                let original_input = input.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
 
@@ -104,7 +105,8 @@ impl Interpreter {
                         }
                         Ok(base_val) => {
                             let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                            let index_results = inner.eval_expr(&index_expr, base_val.clone(), ctx_clone.clone());
+                            // Evaluate index expression with original input, not base_val
+                            let index_results = inner.eval_expr(&index_expr, original_input.clone(), ctx_clone.clone());
 
                             let base_val_for_index = base_val;
                             let optional_inner = optional;
@@ -147,6 +149,7 @@ impl Interpreter {
                 let start_expr = start.clone();
                 let end_expr = end.clone();
                 let ctx_clone = ctx.clone();
+                let original_input = input.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let base_results = this.eval_expr(&base_expr, input, ctx_clone.clone());
@@ -156,10 +159,10 @@ impl Interpreter {
                         Err(e) if !optional => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Err(_) => Box::new(std::iter::empty()),
                         Ok(base_val) => {
-                            // Evaluate start index
+                            // Evaluate start index with original input
                             let start_val = if let Some(ref s) = start_expr {
                                 let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                let mut results = inner.eval_expr(s, base_val.clone(), ctx_clone.clone());
+                                let mut results = inner.eval_expr(s, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
                                     Some(Ok(v)) => v.as_i64(),
                                     _ => None,
@@ -168,10 +171,10 @@ impl Interpreter {
                                 None
                             };
 
-                            // Evaluate end index
+                            // Evaluate end index with original input
                             let end_val = if let Some(ref e) = end_expr {
                                 let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                let mut results = inner.eval_expr(e, base_val.clone(), ctx_clone.clone());
+                                let mut results = inner.eval_expr(e, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
                                     Some(Ok(v)) => v.as_i64(),
                                     _ => None,
@@ -306,8 +309,8 @@ impl Interpreter {
                             } else if let Some(ref else_e) = else_expr {
                                 inner.eval_expr(else_e, input.clone(), ctx_clone.clone())
                             } else {
-                                // No else branch and condition is falsy: return null
-                                Box::new(std::iter::once(Ok(Jv::Null)))
+                                // No else branch and condition is falsy: return identity (input)
+                                Box::new(std::iter::once(Ok(input.clone())))
                             }
                         }
                     }
@@ -1586,22 +1589,59 @@ impl Interpreter {
     fn eval_group_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
-                use std::collections::BTreeMap;
-                let mut groups: BTreeMap<String, Vec<Jv>> = BTreeMap::new();
+                // Collect items with their keys
+                let mut items_with_keys: Vec<(Vec<Jv>, Jv)> = Vec::new();
 
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
-                    match inner.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
-                        Some(Ok(key)) => {
-                            let key_str = format!("{}", key);
-                            groups.entry(key_str).or_default().push(item);
-                        }
-                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                        None => {}
+                    // Collect all key values for tuple comparison
+                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                        .filter_map(|r| r.ok())
+                        .collect();
+
+                    if keys.is_empty() {
+                        items_with_keys.push((vec![Jv::Null], item));
+                    } else {
+                        items_with_keys.push((keys, item));
                     }
                 }
 
-                let result: Vec<Jv> = groups.into_values()
+                // Sort first by keys (this is how jq group_by works)
+                items_with_keys.sort_by(|a, b| {
+                    for (k1, k2) in a.0.iter().zip(b.0.iter()) {
+                        match k1.cmp(k2) {
+                            std::cmp::Ordering::Equal => continue,
+                            other => return other,
+                        }
+                    }
+                    a.0.len().cmp(&b.0.len())
+                });
+
+                // Group consecutive items with equal keys
+                let mut groups: Vec<Vec<Jv>> = Vec::new();
+                let mut current_group: Vec<Jv> = Vec::new();
+                let mut current_keys: Option<Vec<Jv>> = None;
+
+                for (keys, item) in items_with_keys {
+                    let same = match &current_keys {
+                        None => false,
+                        Some(k) => k == &keys,
+                    };
+                    if same {
+                        current_group.push(item);
+                    } else {
+                        if !current_group.is_empty() {
+                            groups.push(std::mem::take(&mut current_group));
+                        }
+                        current_group.push(item);
+                        current_keys = Some(keys);
+                    }
+                }
+                if !current_group.is_empty() {
+                    groups.push(current_group);
+                }
+
+                let result: Vec<Jv> = groups.into_iter()
                     .map(Jv::from_vec)
                     .collect();
                 Box::new(std::iter::once(Ok(Jv::from_vec(result))))
@@ -1613,18 +1653,33 @@ impl Interpreter {
     fn eval_sort_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
-                let mut items_with_keys: Vec<(Jv, Jv)> = Vec::new();
+                let mut items_with_keys: Vec<(Vec<Jv>, Jv)> = Vec::new();
 
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
-                    match inner.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
-                        Some(Ok(key)) => items_with_keys.push((key, item)),
-                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                        None => items_with_keys.push((Jv::Null, item)),
+                    // Collect all key values for tuple comparison
+                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                        .filter_map(|r| r.ok())
+                        .collect();
+
+                    if keys.is_empty() {
+                        items_with_keys.push((vec![Jv::Null], item));
+                    } else {
+                        items_with_keys.push((keys, item));
                     }
                 }
 
-                items_with_keys.sort_by(|a, b| a.0.cmp(&b.0));
+                // Sort by comparing key vectors lexicographically
+                items_with_keys.sort_by(|a, b| {
+                    for (k1, k2) in a.0.iter().zip(b.0.iter()) {
+                        match k1.cmp(k2) {
+                            std::cmp::Ordering::Equal => continue,
+                            other => return other,
+                        }
+                    }
+                    // If all compared keys are equal, shorter key vector comes first
+                    a.0.len().cmp(&b.0.len())
+                });
                 let result: Vec<Jv> = items_with_keys.into_iter().map(|(_, v)| v).collect();
                 Box::new(std::iter::once(Ok(Jv::from_vec(result))))
             }
@@ -1662,22 +1717,37 @@ impl Interpreter {
     fn eval_max_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
             Jv::Array(arr) if arr.len() > 0 => {
-                let mut max_item: Option<(Jv, Jv)> = None;
+                let mut max_item: Option<(Vec<Jv>, Jv)> = None;
 
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
-                    match inner.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
-                        Some(Ok(key)) => {
-                            if let Some((ref max_key, _)) = max_item {
-                                if key > *max_key {
-                                    max_item = Some((key, item));
+                    // Collect all key values for tuple comparison
+                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                        .filter_map(|r| r.ok())
+                        .collect();
+
+                    if keys.is_empty() {
+                        continue;
+                    }
+
+                    if let Some((ref max_keys, _)) = max_item {
+                        // Compare key vectors lexicographically
+                        let mut is_greater = false;
+                        for (k1, k2) in keys.iter().zip(max_keys.iter()) {
+                            match k1.cmp(k2) {
+                                std::cmp::Ordering::Greater => {
+                                    is_greater = true;
+                                    break;
                                 }
-                            } else {
-                                max_item = Some((key, item));
+                                std::cmp::Ordering::Less => break,
+                                std::cmp::Ordering::Equal => continue,
                             }
                         }
-                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                        None => {}
+                        if is_greater {
+                            max_item = Some((keys, item));
+                        }
+                    } else {
+                        max_item = Some((keys, item));
                     }
                 }
 
@@ -1694,22 +1764,37 @@ impl Interpreter {
     fn eval_min_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
             Jv::Array(arr) if arr.len() > 0 => {
-                let mut min_item: Option<(Jv, Jv)> = None;
+                let mut min_item: Option<(Vec<Jv>, Jv)> = None;
 
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
-                    match inner.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
-                        Some(Ok(key)) => {
-                            if let Some((ref min_key, _)) = min_item {
-                                if key < *min_key {
-                                    min_item = Some((key, item));
+                    // Collect all key values for tuple comparison
+                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                        .filter_map(|r| r.ok())
+                        .collect();
+
+                    if keys.is_empty() {
+                        continue;
+                    }
+
+                    if let Some((ref min_keys, _)) = min_item {
+                        // Compare key vectors lexicographically
+                        let mut is_less = false;
+                        for (k1, k2) in keys.iter().zip(min_keys.iter()) {
+                            match k1.cmp(k2) {
+                                std::cmp::Ordering::Less => {
+                                    is_less = true;
+                                    break;
                                 }
-                            } else {
-                                min_item = Some((key, item));
+                                std::cmp::Ordering::Greater => break,
+                                std::cmp::Ordering::Equal => continue,
                             }
                         }
-                        Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                        None => {}
+                        if is_less {
+                            min_item = Some((keys, item));
+                        }
+                    } else {
+                        min_item = Some((keys, item));
                     }
                 }
 
@@ -3403,18 +3488,23 @@ fn mul_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => Ok(Jv::Number(n1.mul(n2))),
         (Jv::String(s), Jv::Number(n)) | (Jv::Number(n), Jv::String(s)) => {
-            if let Some(count) = n.as_i64() {
-                if count <= 0 {
-                    Ok(Jv::Null)
-                } else {
-                    let result_len = s.len().saturating_mul(count as usize);
-                    if result_len > MAX_STRING_REPEAT_SIZE {
-                        return Err("Repeat string result too long".to_string());
-                    }
-                    Ok(Jv::string(s.as_str().repeat(count as usize)))
-                }
+            let f = n.as_f64();
+            // Handle nan and infinity as returning null
+            if f.is_nan() || f.is_infinite() {
+                return Ok(Jv::Null);
+            }
+            // Use floor (toward negative infinity) like jq does
+            let count = f.floor() as i64;
+            if count < 0 {
+                Ok(Jv::Null)
+            } else if count == 0 {
+                Ok(Jv::string("".to_string()))
             } else {
-                Err("string multiplication requires integer".to_string())
+                let result_len = s.len().saturating_mul(count as usize);
+                if result_len > MAX_STRING_REPEAT_SIZE {
+                    return Err("Repeat string result too long".to_string());
+                }
+                Ok(Jv::string(s.as_str().repeat(count as usize)))
             }
         }
         (Jv::Object(o1), Jv::Object(o2)) => {
