@@ -396,24 +396,25 @@ impl Interpreter {
 
             ExprKind::BinaryOp { op, left, right } => {
                 let op = *op;
-                let right_expr = right.clone();
+                let left_expr = left.clone();
                 let input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let left_results = this.eval_expr(left, input, ctx_clone.clone());
+                let right_results = this.eval_expr(right, input, ctx_clone.clone());
 
-                Box::new(left_results.flat_map(move |left_result| {
-                    match left_result {
+                // jq semantics: for each right value, iterate over all left values
+                Box::new(right_results.flat_map(move |right_result| {
+                    match right_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                        Ok(left_val) => {
+                        Ok(right_val) => {
                             let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                            let right_results = inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone());
+                            let left_results = inner.eval_expr(&left_expr, input_clone.clone(), ctx_clone.clone());
 
-                            Box::new(right_results.map(move |right_result| {
-                                match right_result {
+                            Box::new(left_results.map(move |left_result| {
+                                match left_result {
                                     Err(e) => Err(e),
-                                    Ok(right_val) => eval_binary_op(op, &left_val, &right_val),
+                                    Ok(left_val) => eval_binary_op(op, &left_val, &right_val),
                                 }
                             })) as EvalResult
                         }
