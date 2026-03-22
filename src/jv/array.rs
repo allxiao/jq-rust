@@ -217,6 +217,24 @@ impl JvArray {
         self.inner.borrow().iter().position(|v| v == value)
     }
 
+    /// Delete element at index
+    /// Returns a new array without the element
+    pub fn delete(&mut self, index: i64) {
+        self.make_unique();
+        let mut arr = self.inner.borrow_mut();
+        let len = arr.len() as i64;
+
+        let idx = if index < 0 {
+            len + index
+        } else {
+            index
+        };
+
+        if idx >= 0 && idx < len {
+            arr.remove(idx as usize);
+        }
+    }
+
     /// Ensure unique ownership for mutation
     fn make_unique(&mut self) {
         if Rc::strong_count(&self.inner) > 1 {

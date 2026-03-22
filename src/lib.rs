@@ -7,10 +7,7 @@ pub mod jv;
 pub mod error;
 pub mod parser;
 pub mod vm;
-
-// Future modules (commented until implemented):
-// pub mod compiler;
-// pub mod builtins;
+pub mod builtins;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;

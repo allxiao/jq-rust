@@ -1,9 +1,9 @@
 # jq-rust Conversion Progress
 
 ## Current Status
-**Phase**: 4 - Executor (Complete)
+**Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-20
-**Overall Progress**: ~40%
+**Overall Progress**: ~50%
 
 ## Session Log
 
@@ -62,6 +62,22 @@
 - [x] All 90 unit tests passing
 - [x] CLI working with real jq filters
 
+### Session 3 (2026-03-20)
+- [x] Added 48+ new built-in functions:
+  - Path functions: setpath, delpaths, getpath, leaf_paths, paths
+  - Min/Max: min, max
+  - Index functions: indices, index, rindex
+  - Object functions: to_entries, from_entries, env
+  - Type checking: isinfinite, isnan, isnormal, isfinite, infinite, nan
+  - Type selectors: arrays, objects, iterables, booleans, numbers, strings, nulls, scalars
+  - Math functions: log, log10, log2, exp, exp10, exp2, pow, sin, cos, tan, asin, acos, atan
+  - Regex functions: test, match, capture, splits, sub, gsub
+  - Format functions: @base64, @base64d, @uri, @csv, @tsv, @html, @sh, @json, @text
+- [x] Added regex crate dependency
+- [x] Implemented Format expression in interpreter
+- [x] Added JvArray.delete() method
+- [x] All 95 unit tests passing (including 5 new format tests)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -83,21 +99,22 @@
 - [x] 4.2 Stack operations
 - [x] 4.3 Control flow
 
-### Phase 5: Built-in Functions (50%)
+### Phase 5: Built-in Functions (75%)
 - [x] 5.1 Core built-ins
-- [x] 5.2 Math functions
-- [x] 5.3 String functions (partial)
+- [x] 5.2 Math functions (complete)
+- [x] 5.3 String functions
 - [x] 5.4 Array functions
-- [ ] 5.5 Object functions (partial)
+- [x] 5.5 Object functions
 - [ ] 5.6 Date/Time functions
-- [ ] 5.7 Format functions (@base64, @uri, etc.)
+- [x] 5.7 Format functions (@base64, @uri, etc.)
+- [x] 5.8 Regex functions (test, match, capture, sub, gsub)
 
-### Phase 6: Advanced Features (0%)
+### Phase 6: Advanced Features (25%)
 - [ ] 6.1 Module system
-- [ ] 6.2 User-defined functions
-- [ ] 6.3 Error handling (try-catch)
+- [ ] 6.2 User-defined functions (partial - local defs work)
+- [x] 6.3 Error handling (try-catch)
 - [ ] 6.4 Streaming parser
-- [ ] 6.5 Regular expressions
+- [x] 6.5 Regular expressions (basic support)
 
 ### Phase 7: CLI & Polish (0%)
 - [ ] 7.1 Full CLI argument parsing
@@ -110,7 +127,7 @@
 
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
-| Unit tests | 90            | 90          | 100%     |
+| Unit tests | 95            | 95          | 100%     |
 | jq.test    | 0             | TBD         | 0%       |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
@@ -121,6 +138,7 @@
 - `cd72c3c` - Phase 1: Foundation - JV types, JSON parsing, CLI
 - `b82007d` - Phase 2: Lexer and Parser for jq filter expressions
 - (pending) - Phase 3-4: Interpreter and built-in functions
+- (pending) - Phase 5: Expanded built-ins and format functions
 
 ## Notes
 - Reference C code is in `/jq` directory
@@ -128,8 +146,8 @@
 - Target: Full jq compatibility
 
 ## Next Steps
-1. Add more built-in functions (date/time, formats)
-2. Implement regular expression support
-3. Add module system (import/include)
+1. Add date/time functions (now, strftime, strptime, etc.)
+2. Implement module system (import/include)
+3. Add recursive descent function definitions
 4. Run against jq test suite for compatibility testing
 5. Performance optimization

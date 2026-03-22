@@ -494,6 +494,38 @@ impl Interpreter {
                 Box::new(std::iter::once(Ok(Jv::Object(obj))))
             }
 
+            ExprKind::Format { format, expr } => {
+                let format_name = format!("@{}", format);
+                let ctx_clone = ctx.clone();
+
+                // If expr is provided, evaluate it first and apply format
+                // Otherwise apply format to current input
+                let base_input = if let Some(inner_expr) = expr {
+                    let mut inner = Interpreter { ctx: ctx.clone() };
+                    let results: Vec<_> = inner.eval_expr(inner_expr, input, ctx_clone.clone()).collect();
+                    results
+                } else {
+                    vec![Ok(input)]
+                };
+
+                Box::new(base_input.into_iter().flat_map(move |result| {
+                    match result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(val) => {
+                            // Call the format builtin function
+                            let mut ctx_mut = ctx_clone.borrow_mut();
+                            if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
+                                let builtin_fn = *builtin;
+                                drop(ctx_mut);
+                                builtin_fn(&mut Context::new(), val, &[])
+                            } else {
+                                Box::new(std::iter::once(Err(format!("unknown format: {}", format_name))))
+                            }
+                        }
+                    }
+                }))
+            }
+
             _ => {
                 Box::new(std::iter::once(Err(format!("expression type not yet implemented: {:?}", expr.kind))))
             }
