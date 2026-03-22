@@ -431,6 +431,25 @@
   - man.test: 223/230 (96.9%)
   - uri.test: 20/20 (100%)
 
+### Session 22 (2026-03-22)
+- [x] Improved regex support for named capture groups
+  - `match` now includes `name` field for named capture groups
+  - Non-matching optional groups now return full object with `offset: -1`, `string: null`
+  - `capture` now returns `null` for non-matching optional named groups
+- [x] Added regex flag support across functions
+  - `test/2` now supports 'n' flag (no empty matches)
+  - `scan/2` now supports flags (i, x, s, m)
+  - `scan` with capture groups now returns arrays of captures
+  - `splits/2` with 'n' flag now correctly skips empty matches
+  - `builtin_match_flags` now delegates to unified `builtin_match` implementation
+- [x] Fixed `match` to accept array arguments
+  - Supports `[pattern]` or `[pattern, flags]` syntax
+  - Global matching with 'g' flag
+  - No-empty-matches with 'n' flag
+- [x] Updated test results:
+  - onig.test: 29/47 (61.7%) - up from 38.3%
+  - manonig.test: 16/19 (84.2%) - up from 47.4%
+
 ## Known Limitations
 
 The remaining test failures are due to:
@@ -496,12 +515,12 @@ The remaining test failures are due to:
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 505           | 527         | 95.8%    |
-| man.test   | 223           | 230         | 96.9%    |
+| man.test   | 223           | 230         | 97.0%    |
 | optional.test| 2           | 2           | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | base64.test| 9             | 10          | 90%      |
-| onig.test  | 18            | 47          | 38.3%    |
-| manonig.test| 9            | 19          | 47.4%    |
+| onig.test  | 29            | 47          | 61.7%    |
+| manonig.test| 16           | 19          | 84.2%    |
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project

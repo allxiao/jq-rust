@@ -156,6 +156,7 @@ impl BuiltinRegistry {
         self.register("sub", 2, builtin_sub);
         self.register("gsub", 2, builtin_gsub);
         self.register("scan", 1, builtin_scan);
+        self.register("scan", 2, builtin_scan_flags);
         self.register("bsearch", 1, builtin_bsearch);
         self.register("ascii", 0, builtin_ascii);
         self.register("utf8bytelength", 0, builtin_utf8bytelength);
@@ -2113,10 +2114,21 @@ fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
     }
     regex_pattern.push_str(&pattern);
 
+    let no_empty = flags.contains('n');
+
     match &input {
         Jv::String(s) => {
             match regex::Regex::new(&regex_pattern) {
-                Ok(re) => ok(Jv::Bool(re.is_match(s.as_str()))),
+                Ok(re) => {
+                    if no_empty {
+                        // With 'n' flag, only match if we have a non-empty match
+                        let has_nonempty_match = re.find_iter(s.as_str())
+                            .any(|m| !m.as_str().is_empty());
+                        ok(Jv::Bool(has_nonempty_match))
+                    } else {
+                        ok(Jv::Bool(re.is_match(s.as_str())))
+                    }
+                }
                 Err(e) => err(format!("invalid regex: {}", e)),
             }
         }
@@ -2125,62 +2137,21 @@ fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
 }
 
 fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    let pattern = match args.first() {
-        Some(Jv::String(s)) => s.as_str(),
-        _ => return err("match requires string pattern".to_string()),
-    };
-
-    match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(pattern) {
-                Ok(re) => {
-                    if let Some(m) = re.find(s.as_str()) {
-                        let mut obj = crate::jv::JvObject::new();
-                        obj.set("offset", Jv::from_i64(m.start() as i64));
-                        obj.set("length", Jv::from_i64(m.len() as i64));
-                        obj.set("string", Jv::string(m.as_str()));
-
-                        // Capture groups
-                        if let Some(caps) = re.captures(s.as_str()) {
-                            let captures: Vec<Jv> = caps.iter().skip(1)
-                                .map(|c| match c {
-                                    Some(m) => {
-                                        let mut g = crate::jv::JvObject::new();
-                                        g.set("offset", Jv::from_i64(m.start() as i64));
-                                        g.set("length", Jv::from_i64(m.len() as i64));
-                                        g.set("string", Jv::string(m.as_str()));
-                                        g.set("name", Jv::Null);
-                                        Jv::Object(g)
-                                    }
-                                    None => Jv::Null,
-                                })
-                                .collect();
-                            obj.set("captures", Jv::from_vec(captures));
-                        } else {
-                            obj.set("captures", Jv::from_vec(vec![]));
-                        }
-
-                        ok(Jv::Object(obj))
-                    } else {
-                        ok(Jv::Null)
-                    }
-                }
-                Err(e) => err(format!("invalid regex: {}", e)),
-            }
+    // Accept either string pattern or [pattern] or [pattern, flags] array
+    let (pattern, flags) = match args.first() {
+        Some(Jv::String(s)) => (s.as_str().to_string(), String::new()),
+        Some(Jv::Array(arr)) => {
+            let pattern = match arr.get(0) {
+                Some(Jv::String(s)) => s.as_str().to_string(),
+                _ => return err("match requires string pattern".to_string()),
+            };
+            let flags = match arr.get(1) {
+                Some(Jv::String(s)) => s.as_str().to_string(),
+                _ => String::new(),
+            };
+            (pattern, flags)
         }
-        _ => err("match requires string input".to_string()),
-    }
-}
-
-fn builtin_match_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    let pattern = match args.first() {
-        Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("match requires string pattern".to_string()),
-    };
-
-    let flags = match args.get(1) {
-        Some(Jv::String(s)) => s.as_str().to_string(),
-        _ => String::new(),
     };
 
     // Build regex pattern with flags
@@ -2200,21 +2171,69 @@ fn builtin_match_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn It
     regex_pattern.push_str(&pattern);
 
     let global = flags.contains('g');
+    let no_empty = flags.contains('n');
 
     match &input {
         Jv::String(s) => {
             match regex::Regex::new(&regex_pattern) {
                 Ok(re) => {
+                    // Get capture group names (skip index 0 which is the full match)
+                    let capture_names: Vec<Option<&str>> = re.capture_names().skip(1).collect();
+
                     if global {
                         // Global matching - return all matches
-                        let matches: Vec<Jv> = re.find_iter(s.as_str()).map(|m| {
-                            let mut obj = crate::jv::JvObject::new();
-                            obj.set("offset", Jv::from_i64(m.start() as i64));
-                            obj.set("length", Jv::from_i64(m.len() as i64));
-                            obj.set("string", Jv::string(m.as_str()));
-                            obj.set("captures", Jv::from_vec(vec![]));
-                            Jv::Object(obj)
-                        }).collect();
+                        let matches: Vec<Jv> = re.captures_iter(s.as_str())
+                            .filter(|caps| {
+                                // Skip empty matches if 'n' flag is set
+                                if no_empty {
+                                    caps.get(0).map_or(true, |m| !m.as_str().is_empty())
+                                } else {
+                                    true
+                                }
+                            })
+                            .map(|caps| {
+                                let m = caps.get(0).unwrap();
+                                let mut obj = crate::jv::JvObject::new();
+                                obj.set("offset", Jv::from_i64(m.start() as i64));
+                                obj.set("length", Jv::from_i64(m.len() as i64));
+                                obj.set("string", Jv::string(m.as_str()));
+
+                                // Capture groups with names
+                                let captures: Vec<Jv> = caps.iter().skip(1)
+                                    .enumerate()
+                                    .map(|(i, c)| {
+                                        let name = capture_names.get(i).and_then(|n| *n);
+                                        match c {
+                                            Some(m) => {
+                                                let mut g = crate::jv::JvObject::new();
+                                                g.set("offset", Jv::from_i64(m.start() as i64));
+                                                g.set("length", Jv::from_i64(m.len() as i64));
+                                                g.set("string", Jv::string(m.as_str()));
+                                                g.set("name", match name {
+                                                    Some(n) => Jv::string(n),
+                                                    None => Jv::Null,
+                                                });
+                                                Jv::Object(g)
+                                            }
+                                            None => {
+                                                // Non-matching optional group - jq returns full object with null string and offset -1
+                                                let mut g = crate::jv::JvObject::new();
+                                                g.set("offset", Jv::from_i64(-1));
+                                                g.set("length", Jv::from_i64(0));
+                                                g.set("string", Jv::Null);
+                                                g.set("name", match name {
+                                                    Some(n) => Jv::string(n),
+                                                    None => Jv::Null,
+                                                });
+                                                Jv::Object(g)
+                                            }
+                                        }
+                                    })
+                                    .collect();
+                                obj.set("captures", Jv::from_vec(captures));
+
+                                Jv::Object(obj)
+                            }).collect();
 
                         if matches.is_empty() {
                             Box::new(std::iter::empty())
@@ -2222,12 +2241,53 @@ fn builtin_match_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn It
                             Box::new(matches.into_iter().map(Ok))
                         }
                     } else {
-                        if let Some(m) = re.find(s.as_str()) {
+                        if let Some(caps) = re.captures(s.as_str()) {
+                            let m = caps.get(0).unwrap();
+
+                            // Skip empty matches if 'n' flag is set
+                            if no_empty && m.as_str().is_empty() {
+                                return Box::new(std::iter::empty());
+                            }
+
                             let mut obj = crate::jv::JvObject::new();
                             obj.set("offset", Jv::from_i64(m.start() as i64));
                             obj.set("length", Jv::from_i64(m.len() as i64));
                             obj.set("string", Jv::string(m.as_str()));
-                            obj.set("captures", Jv::from_vec(vec![]));
+
+                            // Capture groups with names
+                            let captures: Vec<Jv> = caps.iter().skip(1)
+                                .enumerate()
+                                .map(|(i, c)| {
+                                    let name = capture_names.get(i).and_then(|n| *n);
+                                    match c {
+                                        Some(m) => {
+                                            let mut g = crate::jv::JvObject::new();
+                                            g.set("offset", Jv::from_i64(m.start() as i64));
+                                            g.set("length", Jv::from_i64(m.len() as i64));
+                                            g.set("string", Jv::string(m.as_str()));
+                                            g.set("name", match name {
+                                                Some(n) => Jv::string(n),
+                                                None => Jv::Null,
+                                            });
+                                            Jv::Object(g)
+                                        }
+                                        None => {
+                                            // Non-matching optional group
+                                            let mut g = crate::jv::JvObject::new();
+                                            g.set("offset", Jv::from_i64(-1));
+                                            g.set("length", Jv::from_i64(0));
+                                            g.set("string", Jv::Null);
+                                            g.set("name", match name {
+                                                Some(n) => Jv::string(n),
+                                                None => Jv::Null,
+                                            });
+                                            Jv::Object(g)
+                                        }
+                                    }
+                                })
+                                .collect();
+                            obj.set("captures", Jv::from_vec(captures));
+
                             ok(Jv::Object(obj))
                         } else {
                             Box::new(std::iter::empty())
@@ -2239,6 +2299,22 @@ fn builtin_match_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn It
         }
         _ => err("match requires string input".to_string()),
     }
+}
+
+fn builtin_match_flags(ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // Delegate to builtin_match with [pattern, flags] array
+    let pattern = match args.first() {
+        Some(Jv::String(s)) => s.clone(),
+        _ => return err("match requires string pattern".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.clone(),
+        _ => crate::jv::JvString::from(""),
+    };
+
+    let array_arg = Jv::from_vec(vec![Jv::String(pattern), Jv::String(flags)]);
+    builtin_match(ctx, input, &[array_arg])
 }
 
 fn builtin_capture(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -2253,9 +2329,11 @@ fn builtin_capture(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                 Ok(re) => {
                     if let Some(caps) = re.captures(s.as_str()) {
                         let mut obj = crate::jv::JvObject::new();
+                        // Include all named capture groups, with null for non-matching ones
                         for name in re.capture_names().flatten() {
-                            if let Some(m) = caps.name(name) {
-                                obj.set(name, Jv::string(m.as_str()));
+                            match caps.name(name) {
+                                Some(m) => obj.set(name, Jv::string(m.as_str())),
+                                None => obj.set(name, Jv::Null),
                             }
                         }
                         ok(Jv::Object(obj))
@@ -2318,20 +2396,42 @@ fn builtin_splits2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
     };
 
     // Build regex with flags
-    let pattern_with_flags = if flags.contains('i') {
-        format!("(?i){}", pattern)
-    } else {
-        pattern
-    };
+    let mut pattern_with_flags = String::new();
+    if flags.contains('i') {
+        pattern_with_flags.push_str("(?i)");
+    }
+    pattern_with_flags.push_str(&pattern);
+
+    let no_empty_matches = flags.contains('n');
 
     match &input {
         Jv::String(s) => {
             match regex::Regex::new(&pattern_with_flags) {
                 Ok(re) => {
-                    let parts: Vec<Jv> = re.split(s.as_str())
-                        .map(|p| Jv::string(p))
-                        .collect();
-                    Box::new(parts.into_iter().map(Ok))
+                    if no_empty_matches {
+                        // With 'n' flag, only split at non-empty matches
+                        // Manually implement split to skip empty matches
+                        let s_str = s.as_str();
+                        let mut parts = Vec::new();
+                        let mut last_end = 0;
+
+                        for m in re.find_iter(s_str) {
+                            if !m.as_str().is_empty() {
+                                // Only split at non-empty matches
+                                parts.push(Jv::string(&s_str[last_end..m.start()]));
+                                last_end = m.end();
+                            }
+                        }
+                        // Add the remaining part
+                        parts.push(Jv::string(&s_str[last_end..]));
+
+                        Box::new(parts.into_iter().map(Ok))
+                    } else {
+                        let parts: Vec<Jv> = re.split(s.as_str())
+                            .map(|p| Jv::string(p))
+                            .collect();
+                        Box::new(parts.into_iter().map(Ok))
+                    }
                 }
                 Err(e) => err(format!("invalid regex: {}", e)),
             }
@@ -2391,10 +2491,96 @@ fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
             let s_str = s.as_str().to_string();
             match regex::Regex::new(&pattern) {
                 Ok(re) => {
-                    let matches: Vec<_> = re.find_iter(&s_str)
-                        .map(|m| Ok(Jv::string(m.as_str())))
-                        .collect();
-                    Box::new(matches.into_iter())
+                    // Check if regex has capture groups
+                    let has_groups = re.captures_len() > 1;
+
+                    if has_groups {
+                        // If there are capture groups, return arrays of the captures
+                        let matches: Vec<_> = re.captures_iter(&s_str)
+                            .map(|caps| {
+                                let groups: Vec<Jv> = caps.iter()
+                                    .skip(1)
+                                    .map(|m| match m {
+                                        Some(m) => Jv::string(m.as_str()),
+                                        None => Jv::Null,
+                                    })
+                                    .collect();
+                                Ok(Jv::from_vec(groups))
+                            })
+                            .collect();
+                        Box::new(matches.into_iter())
+                    } else {
+                        // No capture groups - return the full match string
+                        let matches: Vec<_> = re.find_iter(&s_str)
+                            .map(|m| Ok(Jv::string(m.as_str())))
+                            .collect();
+                        Box::new(matches.into_iter())
+                    }
+                }
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("scan requires string input".to_string()),
+    }
+}
+
+fn builtin_scan_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let pattern = match args.first() {
+        Some(Jv::String(p)) => p.as_str().to_string(),
+        _ => return err("scan requires pattern string".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex pattern with flags
+    let mut regex_pattern = String::new();
+    if flags.contains('i') {
+        regex_pattern.push_str("(?i)");
+    }
+    if flags.contains('x') {
+        regex_pattern.push_str("(?x)");
+    }
+    if flags.contains('s') {
+        regex_pattern.push_str("(?s)");
+    }
+    if flags.contains('m') {
+        regex_pattern.push_str("(?m)");
+    }
+    regex_pattern.push_str(&pattern);
+
+    match &input {
+        Jv::String(s) => {
+            let s_str = s.as_str().to_string();
+            match regex::Regex::new(&regex_pattern) {
+                Ok(re) => {
+                    // Check if regex has capture groups
+                    let has_groups = re.captures_len() > 1;
+
+                    if has_groups {
+                        // If there are capture groups, return arrays of the captures
+                        let matches: Vec<_> = re.captures_iter(&s_str)
+                            .map(|caps| {
+                                let groups: Vec<Jv> = caps.iter()
+                                    .skip(1)
+                                    .map(|m| match m {
+                                        Some(m) => Jv::string(m.as_str()),
+                                        None => Jv::Null,
+                                    })
+                                    .collect();
+                                Ok(Jv::from_vec(groups))
+                            })
+                            .collect();
+                        Box::new(matches.into_iter())
+                    } else {
+                        // No capture groups - return the full match string
+                        let matches: Vec<_> = re.find_iter(&s_str)
+                            .map(|m| Ok(Jv::string(m.as_str())))
+                            .collect();
+                        Box::new(matches.into_iter())
+                    }
                 }
                 Err(e) => err(format!("invalid regex: {}", e)),
             }
