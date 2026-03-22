@@ -4303,7 +4303,7 @@ impl Interpreter {
                     let mut arr = match current {
                         Jv::Array(a) => a.clone(),
                         Jv::Null => crate::jv::JvArray::new(),
-                        _ => return Err(format!("Cannot index {} with number", current.type_name())),
+                        _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);
@@ -4671,7 +4671,7 @@ impl Interpreter {
                                             arr.set(idx, value.clone())?;
                                             result = Jv::Array(arr);
                                         }
-                                        _ => return Err(format!("Cannot index {} with number", result.type_name())),
+                                        _ => return Err(format!("Cannot index {} with number ({})", result.type_name(), idx)),
                                     }
                                 }
                                 _ => return Err(format!("Cannot use {} as index", idx_val.type_name())),
@@ -4990,7 +4990,7 @@ impl Interpreter {
                             let mut arr = match current {
                                 Jv::Array(a) => a,
                                 Jv::Null => JvArray::new(),
-                                _ => return Err(format!("Cannot index {} with number", current.type_name())),
+                                _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
                             };
                             let child = arr.get(idx).unwrap_or(Jv::Null);
                             let new_child = set_path(child, rest, value)?;
@@ -5274,41 +5274,58 @@ fn add_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     }
 }
 
-/// Format a value for error messages, truncating long strings
+/// Format a value for error messages, truncating long values like jq.
+/// jq uses a 30-byte buffer for truncation.
 fn format_value_for_error(v: &Jv) -> String {
-    match v {
-        Jv::String(s) => {
-            let str_val = s.as_str();
-            // jq 1.8.1 truncates at 10 bytes (not characters)
-            let byte_len = str_val.len();
-            if byte_len > 10 {
-                // Find the character boundary at or before 10 bytes
-                let mut truncate_at = 10;
-                while truncate_at > 0 && !str_val.is_char_boundary(truncate_at) {
-                    truncate_at -= 1;
-                }
-                let truncated = &str_val[..truncate_at];
-                format!("string (\"{}...)", truncated.replace('"', "\\\""))
-            } else {
-                format!("string (\"{}\")", str_val.replace('"', "\\\""))
-            }
+    use crate::jv::{JvPrintOptions, print_jv_with_options};
+
+    // Buffer size matching jq's errbuf[30]
+    const BUFSIZE: usize = 30;
+
+    // First, dump the value to JSON string representation
+    let opts = JvPrintOptions::compact();
+    let dumped = print_jv_with_options(v, &opts);
+
+    // Get the type name
+    let kind = v.type_name();
+
+    // Truncate the dumped value if needed
+    let truncated = jv_dump_string_trunc(&dumped, BUFSIZE);
+
+    format!("{} ({})", kind, truncated)
+}
+
+/// Truncate a JSON-dumped string like jq's jv_dump_string_trunc.
+/// Uses a buffer of `bufsize` bytes, truncating with "..." and preserving delimiters.
+fn jv_dump_string_trunc(s: &str, bufsize: usize) -> String {
+    let len = s.len();
+    if len > bufsize - 1 && bufsize >= 8 {
+        // Determine the closing delimiter based on first character
+        let delim = match s.chars().next() {
+            Some('"') => Some('"'),
+            Some('[') => Some(']'),
+            Some('{') => Some('}'),
+            _ => None,
+        };
+
+        // Calculate truncation point: bufsize - 5 for "...", delim (if any), and null
+        // But we don't have null terminator in Rust, so it's bufsize - 4 with delim
+        let l = bufsize - if delim.is_some() { 5 } else { 4 };
+
+        // Find UTF-8 boundary at or before position l
+        let mut truncate_at = l;
+        while truncate_at > 0 && !s.is_char_boundary(truncate_at) {
+            truncate_at -= 1;
         }
-        Jv::Number(n) => {
-            let n_str = format!("{}", n);
-            if n_str.len() > 26 {
-                format!("number ({}...)", &n_str[..26])
-            } else {
-                format!("number ({})", n_str)
-            }
+
+        let truncated = &s[..truncate_at];
+        if let Some(d) = delim {
+            format!("{}...{}", truncated, d)
+        } else {
+            format!("{}...", truncated)
         }
-        Jv::Object(_obj) => {
-            // Format object with nested truncation like jq
-            use crate::jv::{JvPrintOptions, print_jv_with_options};
-            let opts = JvPrintOptions::compact();
-            let formatted = print_jv_with_options(v, &opts);
-            format!("object ({})", formatted)
-        }
-        _ => v.type_name().to_string(),
+    } else {
+        s.to_string()
     }
 }
 

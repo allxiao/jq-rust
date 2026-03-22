@@ -1439,7 +1439,7 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     let mut arr = match current {
                         Jv::Array(a) => a,
                         Jv::Null => crate::jv::JvArray::new(),
-                        Jv::Object(_) => return Err("Cannot index object with number".to_string()),
+                        Jv::Object(_) => return Err(format!("Cannot index object with number ({})", idx)),
                         _ => return Err(format!("Cannot index {} with number", current.type_name())),
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
@@ -2938,16 +2938,25 @@ fn builtin_base64d(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
             match crate::builtins::format::base64_decode(s_str) {
                 Ok(decoded) => ok(Jv::string(decoded)),
                 Err(e) => {
-                    // Check for specific error types to provide jq-compatible messages
-                    let truncated = if s_str.len() > 10 {
-                        format!("{}...", &s_str[..10])
+                    // Use truncation that matches jq's 30-byte buffer
+                    // For "string (\"...\") ..." format, we need room for prefix and suffix
+                    // String dump adds quotes, so "Not base64 data" -> "\"Not base64 data\""
+                    // Then we need to fit in error message context
+                    let quoted = format!("{:?}", s_str);
+                    let display_str = if quoted.len() > 25 {
+                        // Truncate to fit in buffer, preserving closing quote
+                        let mut truncate_at = 22; // Leave room for "..." and closing "
+                        while truncate_at > 0 && !quoted.is_char_boundary(truncate_at) {
+                            truncate_at -= 1;
+                        }
+                        format!("{}...\"", &quoted[..truncate_at])
                     } else {
-                        s_str.to_string()
+                        quoted
                     };
                     if e.contains("6-bit remainder") {
-                        err(format!("string ({:?}) trailing base64 byte found", s_str))
+                        err(format!("string ({}) trailing base64 byte found", display_str))
                     } else {
-                        err(format!("string ({:?}) is not valid base64 data", truncated))
+                        err(format!("string ({}) is not valid base64 data", display_str))
                     }
                 }
             }

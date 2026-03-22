@@ -2,8 +2,8 @@
 
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
-**Last Updated**: 2026-03-21
-**Overall Progress**: ~96%
+**Last Updated**: 2026-03-22
+**Overall Progress**: ~98%
 
 ## Session Log
 
@@ -479,17 +479,38 @@
   - `truncate_stream(stream)` removes N levels from paths
   - `fromstream(stream)` reconstructs value from stream
 
+### Session 23 (2026-03-22)
+- [x] Improved error message formatting to match jq's 30-byte buffer truncation
+  - Updated `format_value_for_error` to use proper jq-style truncation
+  - String truncation preserves closing delimiter: `"very-long-long-long-long..."`
+  - Objects/arrays use appropriate closing delimiters
+  - UTF-8 boundary awareness for proper truncation
+- [x] Fixed setpath/indexing error messages to include index value
+  - "Cannot index object with number (1)" instead of "Cannot index object with number"
+  - Fixed in multiple locations in interpreter
+- [x] Fixed @base64d error message formatting
+  - Now uses proper truncation and shows full string when it fits in buffer
+  - `"Not base64 data"` shows fully instead of being truncated
+- [x] Updated test results:
+  - jq.test: 510/527 (96.8%) - 4 more passing from error message fixes
+  - base64.test: 10/10 (100%) - up from 90%
+  - uri.test: 20/20 (100%)
+  - man.test: 229/230 (99.6%)
+  - onig.test: 46/47 (97.9%)
+  - manonig.test: 19/19 (100%)
+  - optional.test: 2/2 (100%)
+  - **Overall: 836/855 (97.8%)**
+
 ## Known Limitations
 
 The remaining test failures are due to:
 
-1. **Module system** - import/include and modulemeta not implemented (9 errors in jq.test)
-2. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
+1. **Module system** - import/include and modulemeta not implemented (9 parse errors + 3 failures in jq.test)
+2. **Filter parameters as update targets** - `def inc(x): x |= .+1` requires call-by-name semantics
 3. **Lookahead/lookbehind regex** - Rust's regex crate doesn't support `(?=...)` patterns
-4. **Error message formats** - Some parse/runtime error messages differ from jq or test file
-5. **Extreme exponents** - Numbers like `9E999999999` should preserve their notation
-6. **Complex path with recursive descent** - `(.. | select(...)) |= f` patterns
-7. **Streaming functions** - truncate_stream and related streaming features
+4. **Error message formats** - Some JSON parse error messages differ from jq's detailed format
+5. **Extreme exponents** - Numbers like `9E999999999` require arbitrary precision arithmetic
+6. **Alternative pattern error backtracking** - `?//` should backtrack on body errors, not just pattern match failures
 
 ## Phase Progress
 
@@ -543,8 +564,14 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 505           | 527         | 95.8%    |
-| man.test   | 225           | 230         | 97.8%    |
+| jq.test    | 510           | 527         | 96.8%    |
+| man.test   | 229           | 230         | 99.6%    |
+| onig.test  | 46            | 47          | 97.9%    |
+| manonig.test | 19          | 19          | 100%     |
+| base64.test| 10            | 10          | 100%     |
+| uri.test   | 20            | 20          | 100%     |
+| optional.test | 2          | 2           | 100%     |
+| **Total**  | **836**       | **855**     | **97.8%**|
 | optional.test| 2           | 2           | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | base64.test| 9             | 10          | 90%      |
