@@ -1147,6 +1147,7 @@ impl Interpreter {
             ("select", 1) => return self.eval_select(&args[0], input, ctx),
             ("recurse", 0) => return self.recurse(input),
             ("recurse", 1) => return self.eval_recurse_with(&args[0], input, ctx),
+            ("recurse", 2) => return self.eval_recurse_with_cond(&args[0], &args[1], input, ctx),
             ("recurse_down", 0) => return self.recurse(input),
             ("range", 1) => return self.eval_range1(&args[0], input, ctx),
             ("range", 2) => return self.eval_range2(&args[0], &args[1], input, ctx),
@@ -1481,6 +1482,46 @@ impl Interpreter {
                     Ok(v) => {
                         results.push(v.clone());
                         queue.push(v);
+                    }
+                    Err(_) => {} // Stop recursion on error
+                }
+            }
+        }
+
+        Box::new(results.into_iter().map(Ok))
+    }
+
+    fn eval_recurse_with_cond(&mut self, filter: &Expr, cond: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // recurse(f; cond) - apply f while condition is true
+        // def recurse(f; cond): def r: ., (f | select(cond) | r); r;
+        const MAX_RECURSE: usize = 100000;
+        let filter_expr = filter.clone();
+        let cond_expr = cond.clone();
+        let ctx_clone = ctx.clone();
+
+        let mut results = vec![input.clone()];
+        let mut queue = vec![input];
+
+        while let Some(current) = queue.pop() {
+            if results.len() > MAX_RECURSE {
+                return Box::new(std::iter::once(Err("recurse: too many results".to_string())));
+            }
+            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+            for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
+                match result {
+                    Ok(v) => {
+                        // Check if condition is satisfied
+                        let mut cond_interp = Interpreter { ctx: ctx_clone.clone() };
+                        match cond_interp.eval_expr(&cond_expr, v.clone(), ctx_clone.clone()).next() {
+                            Some(Ok(cond_val)) if cond_val.is_truthy() => {
+                                // Condition true - include and continue recursion
+                                results.push(v.clone());
+                                queue.push(v);
+                            }
+                            _ => {
+                                // Condition false or error - stop recursion on this branch
+                            }
+                        }
                     }
                     Err(_) => {} // Stop recursion on error
                 }

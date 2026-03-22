@@ -71,6 +71,8 @@ impl BuiltinRegistry {
         self.register("flatten", 0, builtin_flatten);
         self.register("flatten", 1, builtin_flatten_depth);
         self.register("transpose", 0, builtin_transpose);
+        self.register("combinations", 0, builtin_combinations);
+        self.register("combinations", 1, builtin_combinations_n);
         self.register("first", 0, builtin_first);
         self.register("last", 0, builtin_last);
         self.register("nth", 1, builtin_nth);
@@ -510,6 +512,91 @@ fn builtin_transpose(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Ite
             ok(Jv::from_vec(result))
         }
         _ => err(format!("{} cannot be transposed", input.type_name())),
+    }
+}
+
+fn builtin_combinations(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // combinations: Cartesian product of arrays of arrays
+    // [[1,2],[3,4]] -> [1,3], [1,4], [2,3], [2,4]
+    match &input {
+        Jv::Array(outer) => {
+            if outer.is_empty() {
+                // Empty input produces single empty array
+                return ok(Jv::from_vec(vec![]));
+            }
+
+            // Collect all subarrays
+            let mut subarrays: Vec<Vec<Jv>> = Vec::new();
+            for item in outer.iter() {
+                match item {
+                    Jv::Array(inner) => subarrays.push(inner.iter().collect()),
+                    _ => return err("combinations requires array of arrays".to_string()),
+                }
+            }
+
+            // Generate combinations iteratively
+            fn generate_combinations(arrays: &[Vec<Jv>], current: Vec<Jv>, results: &mut Vec<Vec<Jv>>) {
+                if arrays.is_empty() {
+                    results.push(current);
+                    return;
+                }
+
+                for item in &arrays[0] {
+                    let mut next = current.clone();
+                    next.push(item.clone());
+                    generate_combinations(&arrays[1..], next, results);
+                }
+            }
+
+            let mut results = Vec::new();
+            generate_combinations(&subarrays, vec![], &mut results);
+
+            Box::new(results.into_iter().map(|combo| Ok(Jv::from_vec(combo))))
+        }
+        _ => err(format!("{} is not an array of arrays", input.type_name())),
+    }
+}
+
+fn builtin_combinations_n(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // combinations(n): combinations of n copies of the input array
+    // [0,1] | combinations(2) -> [0,0], [0,1], [1,0], [1,1]
+    let n = match args.first() {
+        Some(Jv::Number(num)) => match num.as_i64() {
+            Some(n) if n >= 0 => n as usize,
+            _ => return err("combinations argument must be non-negative integer".to_string()),
+        },
+        _ => return err("combinations argument must be a number".to_string()),
+    };
+
+    match &input {
+        Jv::Array(arr) => {
+            if n == 0 {
+                return ok(Jv::from_vec(vec![]));
+            }
+
+            // Create n copies of the array
+            let arrays: Vec<Vec<Jv>> = (0..n).map(|_| arr.iter().collect()).collect();
+
+            // Generate combinations
+            fn generate_combinations(arrays: &[Vec<Jv>], current: Vec<Jv>, results: &mut Vec<Vec<Jv>>) {
+                if arrays.is_empty() {
+                    results.push(current);
+                    return;
+                }
+
+                for item in &arrays[0] {
+                    let mut next = current.clone();
+                    next.push(item.clone());
+                    generate_combinations(&arrays[1..], next, results);
+                }
+            }
+
+            let mut results = Vec::new();
+            generate_combinations(&arrays, vec![], &mut results);
+
+            Box::new(results.into_iter().map(|combo| Ok(Jv::from_vec(combo))))
+        }
+        _ => err(format!("{} is not an array", input.type_name())),
     }
 }
 
@@ -1625,6 +1712,27 @@ fn builtin_index(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                 None => ok(Jv::Null),
             }
         }
+        (Jv::Array(a), Jv::Array(sub)) => {
+            // Find subsequence in array
+            let sub_len = sub.len();
+            if sub_len == 0 {
+                return ok(Jv::Null);
+            }
+            let a_len = a.len();
+            if sub_len > a_len {
+                return ok(Jv::Null);
+            }
+
+            'outer: for i in 0..=(a_len - sub_len) {
+                for (j, sub_item) in sub.iter().enumerate() {
+                    if a.get(i as i64 + j as i64).unwrap() != sub_item {
+                        continue 'outer;
+                    }
+                }
+                return ok(Jv::from_i64(i as i64));
+            }
+            ok(Jv::Null)
+        }
         (Jv::Array(a), _) => {
             for (i, item) in a.iter().enumerate() {
                 if &item == target {
@@ -1659,6 +1767,27 @@ fn builtin_rindex(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
                 }
                 None => ok(Jv::Null),
             }
+        }
+        (Jv::Array(a), Jv::Array(sub)) => {
+            // Find last subsequence in array (reverse search)
+            let sub_len = sub.len();
+            if sub_len == 0 {
+                return ok(Jv::Null);
+            }
+            let a_len = a.len();
+            if sub_len > a_len {
+                return ok(Jv::Null);
+            }
+
+            'outer: for i in (0..=(a_len - sub_len)).rev() {
+                for (j, sub_item) in sub.iter().enumerate() {
+                    if a.get(i as i64 + j as i64).unwrap() != sub_item {
+                        continue 'outer;
+                    }
+                }
+                return ok(Jv::from_i64(i as i64));
+            }
+            ok(Jv::Null)
         }
         (Jv::Array(a), _) => {
             // Collect into a vec first to support reverse iteration
