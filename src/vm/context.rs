@@ -147,7 +147,9 @@ impl BuiltinRegistry {
         self.register("index", 1, builtin_index);
         self.register("rindex", 1, builtin_rindex);
         self.register("test", 1, builtin_test);
+        self.register("test", 2, builtin_test_flags);
         self.register("match", 1, builtin_match);
+        self.register("match", 2, builtin_match_flags);
         self.register("capture", 1, builtin_capture);
         self.register("splits", 1, builtin_splits);
         self.register("splits", 2, builtin_splits2);
@@ -2084,6 +2086,44 @@ fn builtin_test(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
+fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let pattern = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("test requires string pattern".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex pattern with flags
+    let mut regex_pattern = String::new();
+    if flags.contains('i') {
+        regex_pattern.push_str("(?i)");
+    }
+    if flags.contains('x') {
+        regex_pattern.push_str("(?x)");
+    }
+    if flags.contains('s') {
+        regex_pattern.push_str("(?s)");
+    }
+    if flags.contains('m') {
+        regex_pattern.push_str("(?m)");
+    }
+    regex_pattern.push_str(&pattern);
+
+    match &input {
+        Jv::String(s) => {
+            match regex::Regex::new(&regex_pattern) {
+                Ok(re) => ok(Jv::Bool(re.is_match(s.as_str()))),
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("test requires string input".to_string()),
+    }
+}
+
 fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str(),
@@ -2123,6 +2163,75 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                         ok(Jv::Object(obj))
                     } else {
                         ok(Jv::Null)
+                    }
+                }
+                Err(e) => err(format!("invalid regex: {}", e)),
+            }
+        }
+        _ => err("match requires string input".to_string()),
+    }
+}
+
+fn builtin_match_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    let pattern = match args.first() {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => return err("match requires string pattern".to_string()),
+    };
+
+    let flags = match args.get(1) {
+        Some(Jv::String(s)) => s.as_str().to_string(),
+        _ => String::new(),
+    };
+
+    // Build regex pattern with flags
+    let mut regex_pattern = String::new();
+    if flags.contains('i') {
+        regex_pattern.push_str("(?i)");
+    }
+    if flags.contains('x') {
+        regex_pattern.push_str("(?x)");
+    }
+    if flags.contains('s') {
+        regex_pattern.push_str("(?s)");
+    }
+    if flags.contains('m') {
+        regex_pattern.push_str("(?m)");
+    }
+    regex_pattern.push_str(&pattern);
+
+    let global = flags.contains('g');
+
+    match &input {
+        Jv::String(s) => {
+            match regex::Regex::new(&regex_pattern) {
+                Ok(re) => {
+                    if global {
+                        // Global matching - return all matches
+                        let matches: Vec<Jv> = re.find_iter(s.as_str()).map(|m| {
+                            let mut obj = crate::jv::JvObject::new();
+                            obj.set("offset", Jv::from_i64(m.start() as i64));
+                            obj.set("length", Jv::from_i64(m.len() as i64));
+                            obj.set("string", Jv::string(m.as_str()));
+                            obj.set("captures", Jv::from_vec(vec![]));
+                            Jv::Object(obj)
+                        }).collect();
+
+                        if matches.is_empty() {
+                            Box::new(std::iter::empty())
+                        } else {
+                            Box::new(matches.into_iter().map(Ok))
+                        }
+                    } else {
+                        if let Some(m) = re.find(s.as_str()) {
+                            let mut obj = crate::jv::JvObject::new();
+                            obj.set("offset", Jv::from_i64(m.start() as i64));
+                            obj.set("length", Jv::from_i64(m.len() as i64));
+                            obj.set("string", Jv::string(m.as_str()));
+                            obj.set("captures", Jv::from_vec(vec![]));
+                            ok(Jv::Object(obj))
+                        } else {
+                            Box::new(std::iter::empty())
+                        }
                     }
                 }
                 Err(e) => err(format!("invalid regex: {}", e)),
