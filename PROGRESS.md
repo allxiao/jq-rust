@@ -422,6 +422,13 @@
   - manonig.test: 9/19 (47.4%) - regex manual tests
 - [x] Fixed @urid error message format to match jq
 - [x] Fixed @base64d error message format to match jq
+- [x] Added `combinations/0` for Cartesian product of arrays
+- [x] Added `combinations/1` for n-ary combinations
+- [x] Added `recurse/2` for conditional recursion (recurse(f; cond))
+- [x] Fixed `index()` and `rindex()` to find array subsequences
+- [x] Updated test results:
+  - man.test: 222/230 (96.5%)
+  - uri.test: 20/20 (100%)
 
 ## Known Limitations
 
@@ -488,7 +495,7 @@ The remaining test failures are due to:
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 505           | 527         | 95.8%    |
-| man.test   | 217           | 230         | 94.3%    |
+| man.test   | 222           | 230         | 96.5%    |
 | optional.test| 2           | 2           | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | base64.test| 9             | 10          | 90%      |

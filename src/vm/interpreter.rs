@@ -1939,21 +1939,31 @@ impl Interpreter {
     fn eval_unique_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
-                use std::collections::HashSet;
-                let mut seen: HashSet<String> = HashSet::new();
-                let mut result = Vec::new();
-
+                // Collect (key, item) pairs
+                let mut pairs: Vec<(Jv, Jv)> = Vec::new();
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     match inner.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
                         Some(Ok(key)) => {
-                            let key_str = format!("{}", key);
-                            if seen.insert(key_str) {
-                                result.push(item);
-                            }
+                            pairs.push((key, item));
                         }
                         Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                         None => {}
+                    }
+                }
+
+                // Sort by key
+                pairs.sort_by(|(k1, _), (k2, _)| k1.partial_cmp(k2).unwrap_or(std::cmp::Ordering::Equal));
+
+                // Keep first occurrence of each unique key
+                use std::collections::HashSet;
+                let mut seen: HashSet<String> = HashSet::new();
+                let mut result = Vec::new();
+
+                for (key, item) in pairs {
+                    let key_str = format!("{}", key);
+                    if seen.insert(key_str) {
+                        result.push(item);
                     }
                 }
 
