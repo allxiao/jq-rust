@@ -23,7 +23,7 @@ impl JvString {
     }
 
     /// Create from a string slice
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_slice(s: &str) -> Self {
         JvString::new(s.to_string())
     }
 
@@ -97,18 +97,18 @@ impl JvString {
 
     /// Split string by separator
     pub fn split(&self, sep: &str) -> Vec<JvString> {
-        self.inner.split(sep).map(JvString::from_str).collect()
+        self.inner.split(sep).map(JvString::from_slice).collect()
     }
 
     /// Trim whitespace from both ends
     pub fn trim(&self) -> JvString {
-        JvString::from_str(self.inner.trim())
+        JvString::from_slice(self.inner.trim())
     }
 
     /// Remove prefix if present
     pub fn ltrimstr(&self, prefix: &str) -> JvString {
         if self.inner.starts_with(prefix) {
-            JvString::from_str(&self.inner[prefix.len()..])
+            JvString::from_slice(&self.inner[prefix.len()..])
         } else {
             self.clone()
         }
@@ -117,7 +117,7 @@ impl JvString {
     /// Remove suffix if present
     pub fn rtrimstr(&self, suffix: &str) -> JvString {
         if self.inner.ends_with(suffix) {
-            JvString::from_str(&self.inner[..self.inner.len() - suffix.len()])
+            JvString::from_slice(&self.inner[..self.inner.len() - suffix.len()])
         } else {
             self.clone()
         }
@@ -171,7 +171,7 @@ impl fmt::Display for JvString {
 
 impl From<&str> for JvString {
     fn from(s: &str) -> Self {
-        JvString::from_str(s)
+        JvString::from_slice(s)
     }
 }
 

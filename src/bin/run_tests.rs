@@ -60,7 +60,7 @@ fn main() {
                 let test_dir = get_test_data_dir();
                 if test_dir.exists() {
                     for entry in fs::read_dir(&test_dir).unwrap().flatten() {
-                        if entry.path().extension().map_or(false, |e| e == "test") {
+                        if entry.path().extension().is_some_and(|e| e == "test") {
                             eprintln!("  {}", entry.path().display());
                         }
                     }
@@ -85,7 +85,7 @@ fn main() {
         let mut files: Vec<PathBuf> = fs::read_dir(&test_dir)
             .unwrap()
             .flatten()
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "test"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "test"))
             .map(|e| e.path())
             .collect();
         files.sort();
@@ -166,6 +166,7 @@ fn run_test_file(
     let mut skip_count = 0;
     let total = test_cases.len();
 
+    #[allow(clippy::type_complexity)]
     let mut failures: Vec<(usize, String, String, Vec<String>, Vec<String>)> = Vec::new();
     let mut errors: Vec<(usize, String, String)> = Vec::new();
 

@@ -1,5 +1,7 @@
 //! Execution context for the interpreter
 
+#![allow(clippy::get_first)]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -492,8 +494,8 @@ fn builtin_length(
         Jv::Number(n) => ok(Jv::Number(n.abs())),
         Jv::LiteralNumber(s) => {
             // For literal numbers, length is abs value (same as regular numbers)
-            if s.starts_with('-') {
-                ok(Jv::LiteralNumber(s[1..].to_string()))
+            if let Some(stripped) = s.strip_prefix('-') {
+                ok(Jv::LiteralNumber(stripped.to_string()))
             } else {
                 ok(input)
             }
@@ -874,7 +876,7 @@ fn builtin_debug_msg(
     use crate::jv::print_jv;
     let msg = args
         .first()
-        .map(|v| print_jv(v))
+        .map(print_jv)
         .unwrap_or_else(|| "DEBUG".to_string());
     eprintln!("[{},{}]", msg, print_jv(&input));
     ok(input)
@@ -1257,7 +1259,7 @@ fn builtin_modulemeta(
                 Err(e) => err(e),
             }
         }
-        _ => err(format!("modulemeta input module name must be a string")),
+        _ => err("modulemeta input module name must be a string".to_string()),
     }
 }
 
@@ -1314,8 +1316,8 @@ fn builtin_fabs(
         Jv::Number(n) => ok(Jv::Number(n.abs())),
         Jv::LiteralNumber(s) => {
             // For literal numbers, remove leading minus if present
-            if s.starts_with('-') {
-                ok(Jv::LiteralNumber(s[1..].to_string()))
+            if let Some(stripped) = s.strip_prefix('-') {
+                ok(Jv::LiteralNumber(stripped.to_string()))
             } else {
                 ok(input)
             }
@@ -1599,10 +1601,7 @@ fn builtin_split(
                     .map(|c| Jv::string(c.to_string()))
                     .collect()
             } else {
-                s.split(sep_str)
-                    .into_iter()
-                    .map(|p| Jv::String(p))
-                    .collect()
+                s.split(sep_str).into_iter().map(Jv::String).collect()
             };
             ok(Jv::from_vec(parts))
         }
@@ -1636,7 +1635,7 @@ fn builtin_split2(
     match &input {
         Jv::String(s) => match regex::Regex::new(&pattern_with_flags) {
             Ok(re) => {
-                let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                let parts: Vec<Jv> = re.split(s.as_str()).map(Jv::string).collect();
                 ok(Jv::from_vec(parts))
             }
             Err(e) => err(format!("invalid regex: {}", e)),
@@ -1677,8 +1676,8 @@ fn builtin_join(
                             Jv::Number(n) => format!("{}", n),
                             Jv::Array(_) | Jv::Object(_) => {
                                 return err(format!(
-                                    "{} and {} cannot be added",
-                                    format!("string (\"{}\")", result.replace('"', "\\\"")),
+                                    "string (\"{}\") and {} cannot be added",
+                                    result.replace('"', "\\\""),
                                     format_value_for_join(&v)
                                 ));
                             }
@@ -1812,7 +1811,7 @@ fn jv_contains(a: &Jv, b: &Jv) -> bool {
             .all(|item| arr.iter().any(|x| jv_contains(&x, &item))),
         (Jv::Object(obj), Jv::Object(sub)) => sub
             .iter()
-            .all(|(k, v)| obj.get(&k).map_or(false, |ov| jv_contains(&ov, &v))),
+            .all(|(k, v)| obj.get(&k).is_some_and(|ov| jv_contains(&ov, &v))),
         (Jv::String(s), Jv::String(sub)) => s.contains(sub.as_str()),
         _ => a == b,
     }
@@ -1825,7 +1824,7 @@ fn builtin_setpath(
     input: Jv,
     args: &[Jv],
 ) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    let (path, value) = match (args.get(0), args.get(1)) {
+    let (path, value) = match (args.first(), args.get(1)) {
         (Some(Jv::Array(p)), Some(v)) => (p, v.clone()),
         _ => return err("setpath requires path array and value".to_string()),
     };
@@ -1900,7 +1899,7 @@ fn builtin_delpaths(
             _ => None,
         })
         .collect();
-    path_list.sort_by(|a, b| b.len().cmp(&a.len()));
+    path_list.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
     fn del_at_path(current: Jv, path: &[Jv]) -> Jv {
         if path.is_empty() {
@@ -2988,7 +2987,7 @@ fn builtin_match(
                             .filter(|caps| {
                                 // Skip empty matches if 'n' flag is set
                                 if no_empty {
-                                    caps.get(0).map_or(true, |m| !m.as_str().is_empty())
+                                    caps.get(0).is_none_or(|m| !m.as_str().is_empty())
                                 } else {
                                     true
                                 }
@@ -3241,7 +3240,7 @@ fn builtin_splits(
     match &input {
         Jv::String(s) => match regex::Regex::new(&pattern_with_flags) {
             Ok(re) => {
-                let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                let parts: Vec<Jv> = re.split(s.as_str()).map(Jv::string).collect();
                 Box::new(parts.into_iter().map(Ok))
             }
             Err(e) => err(format!("invalid regex: {}", e)),
@@ -3298,7 +3297,7 @@ fn builtin_splits2(
 
                         Box::new(parts.into_iter().map(Ok))
                     } else {
-                        let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                        let parts: Vec<Jv> = re.split(s.as_str()).map(Jv::string).collect();
                         Box::new(parts.into_iter().map(Ok))
                     }
                 }
@@ -3314,7 +3313,7 @@ fn builtin_sub(
     input: Jv,
     args: &[Jv],
 ) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    let (pattern, replacement) = match (args.get(0), args.get(1)) {
+    let (pattern, replacement) = match (args.first(), args.get(1)) {
         (Some(Jv::String(p)), Some(Jv::String(r))) => (p.as_str(), r.as_str()),
         _ => return err("sub requires pattern and replacement strings".to_string()),
     };
@@ -3336,7 +3335,7 @@ fn builtin_gsub(
     input: Jv,
     args: &[Jv],
 ) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    let (pattern, replacement) = match (args.get(0), args.get(1)) {
+    let (pattern, replacement) = match (args.first(), args.get(1)) {
         (Some(Jv::String(p)), Some(Jv::String(r))) => (p.as_str(), r.as_str()),
         _ => return err("gsub requires pattern and replacement strings".to_string()),
     };
@@ -3560,7 +3559,7 @@ fn builtin_implode(
                         // Check for valid Unicode codepoint
                         // Invalid if: negative, > 0x10FFFF, or in surrogate pair range 0xD800-0xDFFF
                         let cp = n_val as u32;
-                        if n_val < 0 || n_val > 0x10FFFF || (0xD800..=0xDFFF).contains(&cp) {
+                        if !(0..=0x10FFFF).contains(&n_val) || (0xD800..=0xDFFF).contains(&cp) {
                             result.push(REPLACEMENT_CHAR);
                         } else if let Some(c) = char::from_u32(cp) {
                             result.push(c);

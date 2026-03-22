@@ -31,7 +31,7 @@ impl JvObject {
     }
 
     /// Create an object from key-value pairs
-    pub fn from_iter<I, K, V>(iter: I) -> Self
+    pub fn from_pairs<I, K, V>(iter: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
@@ -96,7 +96,7 @@ impl JvObject {
 
     /// Get all keys as Jv strings
     pub fn keys_jv(&self) -> Vec<Jv> {
-        self.inner.borrow().keys().map(|k| Jv::string(k)).collect()
+        self.inner.borrow().keys().map(Jv::string).collect()
     }
 
     /// Get all values
@@ -206,7 +206,7 @@ impl PartialEq for JvObject {
     fn eq(&self, other: &Self) -> bool {
         let a = self.inner.borrow();
         let b = other.inner.borrow();
-        a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).map_or(false, |ov| ov == v))
+        a.len() == b.len() && a.iter().all(|(k, v)| b.get(k) == Some(v))
     }
 }
 

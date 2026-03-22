@@ -2,6 +2,8 @@
 //!
 //! This module implements parsing of jq filter expressions.
 
+#![allow(clippy::module_inception)]
+
 mod ast;
 mod lexer;
 mod parser;

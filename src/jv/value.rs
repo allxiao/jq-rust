@@ -14,9 +14,10 @@ use crate::error::JqError;
 /// Equivalent to `jv` in the C implementation. Unlike C where jv uses
 /// a tagged union with manual reference counting, we use Rust enums
 /// with interior reference counting via Rc/Arc where needed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Jv {
     /// JSON null
+    #[default]
     Null,
     /// JSON boolean
     Bool(bool),
@@ -360,12 +361,6 @@ impl Jv {
 
 // ========== Trait implementations ==========
 
-impl Default for Jv {
-    fn default() -> Self {
-        Jv::Null
-    }
-}
-
 impl PartialEq for Jv {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -657,7 +652,7 @@ mod tests {
     fn test_conversions() {
         let _: Jv = true.into();
         let _: Jv = 42i64.into();
-        let _: Jv = 3.14f64.into();
+        let _: Jv = 3.5f64.into();
         let _: Jv = "hello".into();
         let _: Jv = String::from("world").into();
         let _: Jv = vec![1i64, 2, 3].into();

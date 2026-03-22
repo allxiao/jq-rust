@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_print_number() {
         assert_eq!(print_jv(&Jv::from_i64(42)), "42");
-        assert_eq!(print_jv(&Jv::from_f64(3.14)), "3.14");
+        assert_eq!(print_jv(&Jv::from_f64(3.5)), "3.5");
     }
 
     #[test]

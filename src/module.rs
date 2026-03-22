@@ -311,8 +311,7 @@ impl ModuleLoader {
         // Start with module's own metadata if present
         let mut meta = if let Some(ref module_meta_expr) = module.metadata {
             // Try to evaluate the module metadata expression to get object values
-            self.eval_const_object(module_meta_expr)
-                .unwrap_or_else(|| crate::jv::JvObject::new())
+            self.eval_const_object(module_meta_expr).unwrap_or_default()
         } else {
             crate::jv::JvObject::new()
         };
@@ -340,7 +339,7 @@ impl ModuleLoader {
         // Build defs array
         let mut defs = Vec::new();
         for def in &module.defs {
-            defs.push(Jv::string(&format!("{}/{}", def.name, def.params.len())));
+            defs.push(Jv::string(format!("{}/{}", def.name, def.params.len())));
         }
         meta.set("defs", Jv::from_vec(defs));
 

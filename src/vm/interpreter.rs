@@ -593,15 +593,14 @@ impl Interpreter {
 
                                 if let Some(ref catch_e) = self.catch_expr {
                                     // Convert error string to Jv input for catch handler
-                                    let err_input =
-                                        if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
-                                            let json_str =
-                                                &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
-                                            crate::jv::parse_json(json_str)
-                                                .unwrap_or_else(|_| Jv::string(&e))
-                                        } else {
-                                            Jv::string(&e)
-                                        };
+                                    let err_input = if let Some(json_str) =
+                                        e.strip_prefix(crate::vm::context::JSON_ERROR_PREFIX)
+                                    {
+                                        crate::jv::parse_json(json_str)
+                                            .unwrap_or_else(|_| Jv::string(&e))
+                                    } else {
+                                        Jv::string(&e)
+                                    };
                                     let mut inner = Interpreter {
                                         ctx: self.ctx.clone(),
                                     };
@@ -761,8 +760,8 @@ impl Interpreter {
                         Ok(Jv::Number(n)) => Ok(Jv::Number(n.neg())),
                         Ok(Jv::LiteralNumber(s)) => {
                             // Negate a literal number by toggling the sign
-                            if s.starts_with('-') {
-                                Ok(Jv::LiteralNumber(s[1..].to_string()))
+                            if let Some(stripped) = s.strip_prefix('-') {
+                                Ok(Jv::LiteralNumber(stripped.to_string()))
                             } else {
                                 Ok(Jv::LiteralNumber(format!("-{}", s)))
                             }
@@ -982,7 +981,7 @@ impl Interpreter {
                 pattern,
                 init,
                 update,
-                extract.as_ref(),
+                extract.as_deref(),
                 input,
                 ctx,
             ),
@@ -1429,7 +1428,7 @@ impl Interpreter {
 
                 // Use path-based atomic update: collect all paths, then apply updates atomically
                 // This is how jq's _modify function works: reduce path(target) as $p ...
-                return self.apply_update_with_paths(input, &target_expr, &value_expr, ctx_clone);
+                self.apply_update_with_paths(input, &target_expr, &value_expr, ctx_clone)
             }
 
             ExprKind::UpdateOp { op, target, value } => {
@@ -1970,7 +1969,7 @@ impl Interpreter {
         // For each combination, create a context and evaluate the body
         let func_body = func.body.clone();
         let func_params = func.params.clone();
-        let args_clone: Vec<_> = args.iter().cloned().collect();
+        let args_clone: Vec<_> = args.to_vec();
         let call_ctx_clone = call_ctx.clone();
         let closure_ctx_clone = closure_ctx.clone();
         let input_clone = input.clone();
@@ -2114,14 +2113,12 @@ impl Interpreter {
             let mut inner = Interpreter {
                 ctx: ctx_clone.clone(),
             };
-            for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
-                match result {
-                    Ok(v) => {
-                        results.push(v.clone());
-                        queue.push(v);
-                    }
-                    Err(_) => {} // Stop recursion on error
-                }
+            for v in inner
+                .eval_expr(&filter_expr, current, ctx_clone.clone())
+                .flatten()
+            {
+                results.push(v.clone());
+                queue.push(v);
             }
         }
 
@@ -2154,28 +2151,26 @@ impl Interpreter {
             let mut inner = Interpreter {
                 ctx: ctx_clone.clone(),
             };
-            for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
-                match result {
-                    Ok(v) => {
-                        // Check if condition is satisfied
-                        let mut cond_interp = Interpreter {
-                            ctx: ctx_clone.clone(),
-                        };
-                        match cond_interp
-                            .eval_expr(&cond_expr, v.clone(), ctx_clone.clone())
-                            .next()
-                        {
-                            Some(Ok(cond_val)) if cond_val.is_truthy() => {
-                                // Condition true - include and continue recursion
-                                results.push(v.clone());
-                                queue.push(v);
-                            }
-                            _ => {
-                                // Condition false or error - stop recursion on this branch
-                            }
-                        }
+            for v in inner
+                .eval_expr(&filter_expr, current, ctx_clone.clone())
+                .flatten()
+            {
+                // Check if condition is satisfied
+                let mut cond_interp = Interpreter {
+                    ctx: ctx_clone.clone(),
+                };
+                match cond_interp
+                    .eval_expr(&cond_expr, v.clone(), ctx_clone.clone())
+                    .next()
+                {
+                    Some(Ok(cond_val)) if cond_val.is_truthy() => {
+                        // Condition true - include and continue recursion
+                        results.push(v.clone());
+                        queue.push(v);
                     }
-                    Err(_) => {} // Stop recursion on error
+                    _ => {
+                        // Condition false or error - stop recursion on this branch
+                    }
                 }
             }
         }
@@ -2520,13 +2515,14 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(acc)))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn eval_foreach(
         &mut self,
         iter_expr: &Expr,
         pattern: &Pattern,
         init_expr: &Expr,
         update_expr: &Expr,
-        extract_expr: Option<&Box<Expr>>,
+        extract_expr: Option<&Expr>,
         input: Jv,
         ctx: Rc<RefCell<Context>>,
     ) -> EvalResult {
@@ -2785,7 +2781,7 @@ impl Interpreter {
 
     fn eval_max_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
-            Jv::Array(arr) if arr.len() > 0 => {
+            Jv::Array(arr) if !arr.is_empty() => {
                 let mut max_item: Option<(Vec<Jv>, Jv)> = None;
 
                 for item in arr.iter() {
@@ -2834,7 +2830,7 @@ impl Interpreter {
 
     fn eval_min_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &input {
-            Jv::Array(arr) if arr.len() > 0 => {
+            Jv::Array(arr) if !arr.is_empty() => {
                 let mut min_item: Option<(Vec<Jv>, Jv)> = None;
 
                 for item in arr.iter() {
@@ -3056,7 +3052,7 @@ impl Interpreter {
             .collect();
 
         for s_val in src_values {
-            if stream_values.iter().any(|v| *v == s_val) {
+            if stream_values.contains(&s_val) {
                 return Box::new(std::iter::once(Ok(Jv::Bool(true))));
             }
         }
@@ -4163,7 +4159,7 @@ impl Interpreter {
         // f can be a generator producing multiple outputs
         // If f produces no output for a value, that value is omitted
         fn walk_value(
-            interp: &mut Interpreter,
+            _interp: &mut Interpreter,
             filter: &Expr,
             value: Jv,
             ctx: Rc<RefCell<Context>>,
@@ -4174,7 +4170,7 @@ impl Interpreter {
                     let mut new_arr = Vec::new();
                     for item in arr.iter() {
                         // For arrays, collect all outputs from walking each item
-                        let results = walk_value(interp, filter, item, ctx.clone());
+                        let results = walk_value(_interp, filter, item, ctx.clone());
                         for result in results {
                             match result {
                                 Ok(v) => new_arr.push(v),
@@ -4187,7 +4183,7 @@ impl Interpreter {
                 Jv::Object(obj) => {
                     let mut new_obj = crate::jv::JvObject::new();
                     for (k, v) in obj.iter() {
-                        let results = walk_value(interp, filter, v, ctx.clone());
+                        let results = walk_value(_interp, filter, v, ctx.clone());
                         // Only include first result for objects (maintaining single value per key)
                         // If no results, omit the key
                         if let Some(first) = results.into_iter().next() {
@@ -4239,7 +4235,7 @@ impl Interpreter {
         match &input {
             Jv::String(s) => match regex::Regex::new(&sep) {
                 Ok(re) => {
-                    let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                    let parts: Vec<Jv> = re.split(s.as_str()).map(Jv::string).collect();
                     Box::new(parts.into_iter().map(Ok))
                 }
                 Err(e) => Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
@@ -4629,11 +4625,7 @@ impl Interpreter {
                 results.push(Ok(Jv::string(result)));
             }
 
-            if results.len() == 1 {
-                Box::new(results.into_iter())
-            } else {
-                Box::new(results.into_iter())
-            }
+            Box::new(results.into_iter())
         } else {
             // sub - replace first match only
             let caps_result = re.captures(&s);
@@ -4828,12 +4820,13 @@ impl Interpreter {
                         // Then add the index to each base path
                         // Evaluate the index - it may produce multiple values (e.g., 0,1)
                         let mut interp = Interpreter { ctx: ctx.clone() };
-                        for idx_result in interp.eval_expr(index, input.clone(), ctx.clone()) {
-                            if let Ok(idx) = idx_result {
-                                let mut new_path = base_path.clone();
-                                new_path.push(idx);
-                                paths.push(new_path);
-                            }
+                        for idx in interp
+                            .eval_expr(index, input.clone(), ctx.clone())
+                            .flatten()
+                        {
+                            let mut new_path = base_path.clone();
+                            new_path.push(idx);
+                            paths.push(new_path);
                         }
                     }
                 }
@@ -4884,9 +4877,10 @@ impl Interpreter {
                                     };
 
                                     // Create error marker with the specific message
-                                    let mut error_path = Vec::new();
-                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                                    error_path.push(Jv::string(error_msg));
+                                    let error_path = vec![
+                                        Jv::string("__INVALID_PATH_MARKER__"),
+                                        Jv::string(error_msg),
+                                    ];
                                     paths.push(error_path);
                                     continue;
                                 }
@@ -4917,9 +4911,10 @@ impl Interpreter {
                                     let formatted = print_jv(result_value);
                                     let error_msg = format!("Invalid path expression near attempt to iterate through {}", formatted);
 
-                                    let mut error_path = Vec::new();
-                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                                    error_path.push(Jv::string(error_msg));
+                                    let error_path = vec![
+                                        Jv::string("__INVALID_PATH_MARKER__"),
+                                        Jv::string(error_msg),
+                                    ];
                                     paths.push(error_path);
                                     continue;
                                 }
@@ -5020,16 +5015,14 @@ impl Interpreter {
                         // to match jq's error message format.
                         // For now, we evaluate to get the result and store it as a special marker.
                         let mut interp = Interpreter { ctx: ctx.clone() };
-                        match interp.eval_expr(expr, input.clone(), ctx).next() {
-                            Some(Ok(result)) => {
-                                // Mark this as an invalid path by returning a special sentinel
-                                // We'll detect this later and generate the appropriate error
-                                let mut marker_path = current_path;
-                                marker_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                                marker_path.push(result);
-                                paths.push(marker_path);
-                            }
-                            _ => {}
+                        if let Some(Ok(result)) = interp.eval_expr(expr, input.clone(), ctx).next()
+                        {
+                            // Mark this as an invalid path by returning a special sentinel
+                            // We'll detect this later and generate the appropriate error
+                            let mut marker_path = current_path;
+                            marker_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                            marker_path.push(result);
+                            paths.push(marker_path);
                         }
                     }
                 }
@@ -5504,12 +5497,13 @@ impl Interpreter {
 
                     // Evaluate the index expression
                     let mut interp = Interpreter { ctx: ctx.clone() };
-                    for idx_result in interp.eval_expr(index, base_value.clone(), ctx.clone()) {
-                        if let Ok(idx) = idx_result {
-                            let mut new_path = base_path.clone();
-                            new_path.push(idx);
-                            paths.push(new_path);
-                        }
+                    for idx in interp
+                        .eval_expr(index, base_value.clone(), ctx.clone())
+                        .flatten()
+                    {
+                        let mut new_path = base_path.clone();
+                        new_path.push(idx);
+                        paths.push(new_path);
                     }
                 }
             }
@@ -5538,9 +5532,10 @@ impl Interpreter {
                                     use crate::jv::print_jv;
                                     let formatted = print_jv(result_value);
                                     let error_msg = format!("Invalid path expression near attempt to iterate through {}", formatted);
-                                    let mut error_path = Vec::new();
-                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                                    error_path.push(Jv::string(error_msg));
+                                    let error_path = vec![
+                                        Jv::string("__INVALID_PATH_MARKER__"),
+                                        Jv::string(error_msg),
+                                    ];
                                     paths.push(error_path);
                                 } else {
                                     paths.push(base_path);
@@ -5726,15 +5721,11 @@ impl Interpreter {
                     interp.eval_expr(&func_call_expr, value_at_path, ctx).next()
                 {
                     // Create an invalid path marker with the result
-                    let mut error_path = Vec::new();
-                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                    error_path.push(result);
+                    let error_path = vec![Jv::string("__INVALID_PATH_MARKER__"), result];
                     paths.push(error_path);
                 } else {
                     // If evaluation fails or is empty, still mark as invalid
-                    let mut error_path = Vec::new();
-                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
-                    error_path.push(Jv::Null);
+                    let error_path = vec![Jv::string("__INVALID_PATH_MARKER__"), Jv::Null];
                     paths.push(error_path);
                 }
             }
@@ -5849,12 +5840,10 @@ impl Interpreter {
     /// Check if an expression is a path access (field or index)
     /// Used to determine if a null result means "path doesn't exist"
     fn is_path_access(kind: &ExprKind) -> bool {
-        match kind {
-            ExprKind::Field(_) => true,
-            ExprKind::Index { .. } => true,
-            ExprKind::Slice { .. } => true,
-            _ => false,
-        }
+        matches!(
+            kind,
+            ExprKind::Field(_) | ExprKind::Index { .. } | ExprKind::Slice { .. }
+        )
     }
 
     /// Apply update to recursive descent: .. |= f or (.. | filter) |= f or (.. | filter | path) |= f
@@ -5872,7 +5861,7 @@ impl Interpreter {
 
         // Sort paths by length descending (deepest first)
         // This ensures we update children before parents
-        all_paths.sort_by(|a, b| b.len().cmp(&a.len()));
+        all_paths.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
         // Apply updates
         let mut result = input;
@@ -6398,10 +6387,7 @@ impl Interpreter {
                         // If multiple indices (comma expression), apply assignment to each
                         let mut result = current.clone();
                         for idx_result in idx_results {
-                            let idx_val = match idx_result {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
+                            let idx_val = idx_result?;
 
                             match &idx_val {
                                 Jv::String(s) => match result {
@@ -6478,10 +6464,7 @@ impl Interpreter {
                         // For comma expressions, apply all assignments sequentially
                         let mut result = current.clone();
                         for idx_result in idx_results {
-                            let idx_val = match idx_result {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
+                            let idx_val = idx_result?;
 
                             let mut base_interp = Interpreter { ctx: ctx.clone() };
                             let base_val = match base_interp
@@ -6877,7 +6860,7 @@ impl Interpreter {
                             };
                             let child = arr.get(idx).unwrap_or(Jv::Null);
                             let new_child = set_path(child, rest, value)?;
-                            arr.set(idx, new_child).map_err(|e| e)?;
+                            arr.set(idx, new_child)?;
                             Ok(Jv::Array(arr))
                         }
                         _ => Err(format!("Cannot index with {}", key.type_name())),
@@ -7353,11 +7336,7 @@ fn div_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
             }
         }
         (Jv::String(s), Jv::String(sep)) => {
-            let parts: Vec<Jv> = s
-                .split(sep.as_str())
-                .into_iter()
-                .map(|p| Jv::String(p))
-                .collect();
+            let parts: Vec<Jv> = s.split(sep.as_str()).into_iter().map(Jv::String).collect();
             Ok(Jv::from_vec(parts))
         }
         _ => Err(format!(

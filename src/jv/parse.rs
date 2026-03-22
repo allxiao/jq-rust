@@ -665,7 +665,7 @@ mod tests {
     fn test_parse_number() {
         assert_eq!(parse_json("42").unwrap(), Jv::from_i64(42));
         assert_eq!(parse_json("-42").unwrap(), Jv::from_i64(-42));
-        assert_eq!(parse_json("3.14").unwrap(), Jv::from_f64(3.14));
+        assert_eq!(parse_json("3.5").unwrap(), Jv::from_f64(3.5));
         assert_eq!(parse_json("1e10").unwrap(), Jv::from_f64(1e10));
         assert_eq!(parse_json("1.5e-3").unwrap(), Jv::from_f64(1.5e-3));
     }

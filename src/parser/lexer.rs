@@ -152,10 +152,10 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some(b'.') {
                     self.advance();
                     TokenKind::DotDot
-                } else if self.peek().map_or(false, is_ident_start) {
+                } else if self.peek().is_some_and(is_ident_start) {
                     // Field access: .fieldname
                     let field_start = self.pos;
-                    while self.peek().map_or(false, is_ident_continue) {
+                    while self.peek().is_some_and(is_ident_continue) {
                         self.advance();
                     }
                     let name =
@@ -282,9 +282,9 @@ impl<'a> Lexer<'a> {
                 if self.input[self.pos..].starts_with(b"__loc__") {
                     self.pos += 7;
                     TokenKind::Loc
-                } else if self.peek().map_or(false, is_ident_start) {
+                } else if self.peek().is_some_and(is_ident_start) {
                     let name_start = self.pos;
-                    while self.peek().map_or(false, is_ident_continue) {
+                    while self.peek().is_some_and(is_ident_continue) {
                         self.advance();
                     }
                     let name =
@@ -297,11 +297,11 @@ impl<'a> Lexer<'a> {
 
             // Format: @name
             b'@' => {
-                if self.peek().map_or(false, is_ident_start) {
+                if self.peek().is_some_and(is_ident_start) {
                     let name_start = self.pos;
                     while self
                         .peek()
-                        .map_or(false, |c| is_ident_continue(c) || c == b'-')
+                        .is_some_and(|c| is_ident_continue(c) || c == b'-')
                     {
                         self.advance();
                     }
@@ -322,14 +322,14 @@ impl<'a> Lexer<'a> {
             // Identifiers and keywords
             c if is_ident_start(c) => {
                 let ident_start = start;
-                while self.peek().map_or(false, is_ident_continue) {
+                while self.peek().is_some_and(is_ident_continue) {
                     self.advance();
                 }
                 // Handle namespaced identifiers (foo::bar)
                 while self.peek() == Some(b':') && self.peek_next() == Some(b':') {
                     self.advance(); // skip first :
                     self.advance(); // skip second :
-                    while self.peek().map_or(false, is_ident_continue) {
+                    while self.peek().is_some_and(is_ident_continue) {
                         self.advance();
                     }
                 }
@@ -513,14 +513,14 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
 
         // Integer part
-        while self.peek().map_or(false, |c| c.is_ascii_digit()) {
+        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
             self.advance();
         }
 
         // Check for decimal point
-        if self.peek() == Some(b'.') && self.peek_next().map_or(false, |c| c.is_ascii_digit()) {
+        if self.peek() == Some(b'.') && self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
             self.advance(); // consume .
-            while self.peek().map_or(false, |c| c.is_ascii_digit()) {
+            while self.peek().is_some_and(|c| c.is_ascii_digit()) {
                 self.advance();
             }
         }
@@ -532,7 +532,7 @@ impl<'a> Lexer<'a> {
             if let Some(b'+') | Some(b'-') = self.peek() {
                 self.advance();
             }
-            while self.peek().map_or(false, |c| c.is_ascii_digit()) {
+            while self.peek().is_some_and(|c| c.is_ascii_digit()) {
                 self.advance();
             }
         }
@@ -543,7 +543,7 @@ impl<'a> Lexer<'a> {
         // f64 exponent range is roughly -308 to +308
         if has_exponent {
             if let Some(exp) = extract_exponent(num_str) {
-                if exp > 308 || exp < -308 {
+                if !(-308..=308).contains(&exp) {
                     // Return as literal number - normalize to jq's format
                     return TokenKind::LiteralNumber(normalize_literal_number(num_str));
                 }
@@ -776,10 +776,10 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let tokens = tokenize("42 3.14 1e10");
+        let tokens = tokenize("42 3.5 1e10");
         assert_eq!(tokens.len(), 4);
         assert!(matches!(tokens[0], TokenKind::Number(n) if n == 42.0));
-        assert!(matches!(tokens[1], TokenKind::Number(n) if (n - 3.14).abs() < 0.001));
+        assert!(matches!(tokens[1], TokenKind::Number(n) if (n - 3.5).abs() < 0.001));
         assert!(matches!(tokens[2], TokenKind::Number(n) if n == 1e10));
     }
 

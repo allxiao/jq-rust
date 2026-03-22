@@ -101,38 +101,29 @@ impl JvNumber {
     // ========== Arithmetic operations ==========
 
     pub fn add(&self, other: &JvNumber) -> JvNumber {
-        match (self.int_value, other.int_value) {
-            (Some(a), Some(b)) => {
-                // Try integer addition first to preserve precision
-                if let Some(result) = a.checked_add(b) {
-                    return JvNumber::from_i64(result);
-                }
+        if let (Some(a), Some(b)) = (self.int_value, other.int_value) {
+            // Try integer addition first to preserve precision
+            if let Some(result) = a.checked_add(b) {
+                return JvNumber::from_i64(result);
             }
-            _ => {}
         }
         JvNumber::from_f64(self.value + other.value)
     }
 
     pub fn sub(&self, other: &JvNumber) -> JvNumber {
-        match (self.int_value, other.int_value) {
-            (Some(a), Some(b)) => {
-                if let Some(result) = a.checked_sub(b) {
-                    return JvNumber::from_i64(result);
-                }
+        if let (Some(a), Some(b)) = (self.int_value, other.int_value) {
+            if let Some(result) = a.checked_sub(b) {
+                return JvNumber::from_i64(result);
             }
-            _ => {}
         }
         JvNumber::from_f64(self.value - other.value)
     }
 
     pub fn mul(&self, other: &JvNumber) -> JvNumber {
-        match (self.int_value, other.int_value) {
-            (Some(a), Some(b)) => {
-                if let Some(result) = a.checked_mul(b) {
-                    return JvNumber::from_i64(result);
-                }
+        if let (Some(a), Some(b)) = (self.int_value, other.int_value) {
+            if let Some(result) = a.checked_mul(b) {
+                return JvNumber::from_i64(result);
             }
-            _ => {}
         }
         JvNumber::from_f64(self.value * other.value)
     }
@@ -175,13 +166,10 @@ impl JvNumber {
     }
 
     pub fn neg(&self) -> JvNumber {
-        match self.int_value {
-            Some(n) => {
-                if let Some(result) = n.checked_neg() {
-                    return JvNumber::from_i64(result);
-                }
+        if let Some(n) = self.int_value {
+            if let Some(result) = n.checked_neg() {
+                return JvNumber::from_i64(result);
             }
-            None => {}
         }
         JvNumber::from_f64(-self.value)
     }
@@ -199,13 +187,10 @@ impl JvNumber {
     }
 
     pub fn abs(&self) -> JvNumber {
-        match self.int_value {
-            Some(n) => {
-                if let Some(result) = n.checked_abs() {
-                    return JvNumber::from_i64(result);
-                }
+        if let Some(n) = self.int_value {
+            if let Some(result) = n.checked_abs() {
+                return JvNumber::from_i64(result);
             }
-            None => {}
         }
         JvNumber::from_f64(self.value.abs())
     }
@@ -229,7 +214,7 @@ impl Eq for JvNumber {}
 
 impl PartialOrd for JvNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.value.partial_cmp(&other.value)
+        Some(self.cmp(other))
     }
 }
 
@@ -321,6 +306,6 @@ mod tests {
     #[test]
     fn test_display() {
         assert_eq!(format!("{}", JvNumber::from_i64(42)), "42");
-        assert_eq!(format!("{}", JvNumber::from_f64(3.14)), "3.14");
+        assert_eq!(format!("{}", JvNumber::from_f64(3.5)), "3.5");
     }
 }
