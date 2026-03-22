@@ -2076,22 +2076,38 @@ fn builtin_implode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
         Jv::Array(a) => {
             let mut result = String::new();
             for item in a.iter() {
-                if let Some(n_f64) = item.as_f64() {
-                    // jq truncates floats to integers (floor)
-                    let n = n_f64.floor() as i64;
+                match &item {
+                    Jv::Number(n) => {
+                        if n.is_nan() {
+                            // NaN is displayed as "null" in jq's error message
+                            return err("number (null) can't be imploded, unicode codepoint needs to be numeric".to_string());
+                        }
+                        // jq truncates floats to integers (floor)
+                        let n_val = n.as_f64().floor() as i64;
 
-                    // Check for valid Unicode codepoint
-                    // Invalid if: negative, > 0x10FFFF, or in surrogate pair range 0xD800-0xDFFF
-                    let cp = n as u32;
-                    if n < 0 || n > 0x10FFFF || (0xD800..=0xDFFF).contains(&cp) {
-                        result.push(REPLACEMENT_CHAR);
-                    } else if let Some(c) = char::from_u32(cp) {
-                        result.push(c);
-                    } else {
-                        result.push(REPLACEMENT_CHAR);
+                        // Check for valid Unicode codepoint
+                        // Invalid if: negative, > 0x10FFFF, or in surrogate pair range 0xD800-0xDFFF
+                        let cp = n_val as u32;
+                        if n_val < 0 || n_val > 0x10FFFF || (0xD800..=0xDFFF).contains(&cp) {
+                            result.push(REPLACEMENT_CHAR);
+                        } else if let Some(c) = char::from_u32(cp) {
+                            result.push(c);
+                        } else {
+                            result.push(REPLACEMENT_CHAR);
+                        }
                     }
-                } else {
-                    return err("implode requires array of integers".to_string());
+                    Jv::String(s) => {
+                        // String element - jq format: string ("...") can't be imploded
+                        let display = if s.as_str().len() > 10 {
+                            format!("{}...", &s.as_str()[..10])
+                        } else {
+                            s.as_str().to_string()
+                        };
+                        return err(format!("string (\"{}\") can't be imploded, unicode codepoint needs to be numeric", display));
+                    }
+                    _ => {
+                        return err(format!("{} ({}) can't be imploded, unicode codepoint needs to be numeric", item.type_name(), item.type_name()));
+                    }
                 }
             }
             ok(Jv::string(result))
