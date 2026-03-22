@@ -23,6 +23,99 @@ fn make_break_signal(label: &str) -> String {
     format!("{}{}", BREAK_PREFIX, label)
 }
 
+/// Get a value at a given path in a JSON structure
+fn get_value_at_path(input: &Jv, path: &[Jv]) -> Jv {
+    let mut current = input.clone();
+    for p in path {
+        match (&current, p) {
+            (Jv::Object(obj), Jv::String(key)) => {
+                current = obj.get(key.as_str()).unwrap_or(Jv::Null);
+            }
+            (Jv::Array(arr), Jv::Number(n)) => {
+                if let Some(idx) = n.as_i64() {
+                    current = arr.get(idx).unwrap_or(Jv::Null);
+                } else {
+                    return Jv::Null;
+                }
+            }
+            _ => return Jv::Null,
+        }
+    }
+    current
+}
+
+/// Set a value at a given path in a JSON structure
+fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Jv {
+    if path.is_empty() {
+        return value;
+    }
+
+    let first = &path[0];
+    let rest = &path[1..];
+
+    match (&input, first) {
+        (Jv::Object(obj), Jv::String(key)) => {
+            let mut new_obj = obj.clone();
+            let child = obj.get(key.as_str()).unwrap_or(Jv::Null);
+            let new_child = set_value_at_path(child, rest, value);
+            new_obj.set(key.as_str(), new_child);
+            Jv::Object(new_obj)
+        }
+        (Jv::Array(arr), Jv::Number(n)) => {
+            if let Some(idx) = n.as_i64() {
+                let mut new_arr = arr.clone();
+                let len = new_arr.len();
+
+                // Handle negative indices
+                let actual_idx = if idx < 0 {
+                    let adj = len as i64 + idx;
+                    if adj < 0 { 0usize } else { adj as usize }
+                } else {
+                    idx as usize
+                };
+
+                // Extend array if needed
+                while new_arr.len() <= actual_idx {
+                    new_arr.push(Jv::Null);
+                }
+
+                let child = new_arr.get(actual_idx as i64).unwrap_or(Jv::Null);
+                let new_child = set_value_at_path(child, rest, value);
+                new_arr.set(actual_idx as i64, new_child).ok();
+                Jv::Array(new_arr)
+            } else {
+                input
+            }
+        }
+        (Jv::Null, Jv::String(key)) => {
+            // Auto-vivification: create object
+            let mut new_obj = JvObject::new();
+            let new_child = set_value_at_path(Jv::Null, rest, value);
+            new_obj.set(key.as_str(), new_child);
+            Jv::Object(new_obj)
+        }
+        (Jv::Null, Jv::Number(n)) => {
+            // Auto-vivification: create array
+            if let Some(idx) = n.as_i64() {
+                if idx >= 0 {
+                    let mut new_arr = crate::jv::JvArray::new();
+                    while new_arr.len() <= idx as usize {
+                        new_arr.push(Jv::Null);
+                    }
+                    let new_child = set_value_at_path(Jv::Null, rest, value);
+                    new_arr.set(idx, new_child).ok();
+                    Jv::Array(new_arr)
+                } else {
+                    input
+                }
+            } else {
+                input
+            }
+        }
+        _ => input,
+    }
+}
+
 /// The jq interpreter
 pub struct Interpreter {
     ctx: Rc<RefCell<Context>>,
@@ -1012,42 +1105,9 @@ impl Interpreter {
                     }
                 }
 
-                // Get current value at target
-                let mut get_interp = Interpreter { ctx: ctx.clone() };
-                let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
-
-                // If no values selected (e.g., select filtered everything out), return input unchanged
-                if current_results.is_empty() {
-                    return Box::new(std::iter::once(Ok(input)));
-                }
-
-                Box::new(current_results.into_iter().flat_map(move |current_result| {
-                    match current_result {
-                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                        Ok(current_val) => {
-                            // Pipe current value through the filter
-                            let mut val_interp = Interpreter { ctx: ctx_clone.clone() };
-                            let new_value = match val_interp.eval_expr(&value_expr, current_val, ctx_clone.clone()).next() {
-                                Some(Ok(v)) => v,
-                                Some(Err(e)) => return Box::new(std::iter::once(Err(e))) as EvalResult,
-                                None => return Box::new(std::iter::empty()) as EvalResult,
-                            };
-
-                            let mut path_parts: Vec<Jv> = Vec::new();
-                            let modified = Self::apply_assignment(
-                                input.clone(),
-                                &target_expr,
-                                new_value,
-                                &mut path_parts,
-                                ctx_clone.clone(),
-                            );
-                            match modified {
-                                Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
-                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                            }
-                        }
-                    }
-                }))
+                // Use path-based atomic update: collect all paths, then apply updates atomically
+                // This is how jq's _modify function works: reduce path(target) as $p ...
+                return self.apply_update_with_paths(input, &target_expr, &value_expr, ctx_clone);
             }
 
             ExprKind::UpdateOp { op, target, value } => {
@@ -4088,6 +4148,222 @@ impl Interpreter {
         }
 
         Box::new(std::iter::once(Ok(Jv::string(result))))
+    }
+
+    /// Apply an update using path-based approach (like jq's _modify function)
+    ///
+    /// This implements the jq pattern:
+    ///   reduce path(target) as $p (.; . | setpath($p; (getpath($p) | update)))
+    ///
+    /// This ensures all paths are updated atomically on a single result.
+    fn apply_update_with_paths(
+        &mut self,
+        input: Jv,
+        target: &Expr,
+        update: &Expr,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
+        // First, collect all paths from the target expression
+        let paths = self.collect_paths_for_update(target, &input, ctx.clone());
+
+        if paths.is_empty() {
+            // No paths selected, return input unchanged
+            return Box::new(std::iter::once(Ok(input)));
+        }
+
+        // Apply updates to each path, accumulating the result
+        let mut result = input.clone();
+        for path in paths {
+            // Check for error markers in path
+            if !path.is_empty() {
+                if let Jv::String(s) = &path[0] {
+                    if s.as_str() == "__INVALID_PATH_MARKER__" {
+                        // This is an error path, skip it
+                        continue;
+                    }
+                }
+            }
+
+            // Get current value at this path
+            let current_value = get_value_at_path(&result, &path);
+
+            // Apply the update expression to the current value
+            let mut update_interp = Interpreter { ctx: ctx.clone() };
+            let new_value = match update_interp.eval_expr(update, current_value, ctx.clone()).next() {
+                Some(Ok(v)) => v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => {
+                    // Update returned empty, this path should be deleted
+                    // For now, just skip (TODO: implement deletion)
+                    continue;
+                }
+            };
+
+            // Set the new value at this path
+            result = set_value_at_path(result, &path, new_value);
+        }
+
+        Box::new(std::iter::once(Ok(result)))
+    }
+
+    /// Collect all paths from a target expression for update operations
+    fn collect_paths_for_update(&mut self, expr: &Expr, input: &Jv, ctx: Rc<RefCell<Context>>) -> Vec<Vec<Jv>> {
+        let mut paths = Vec::new();
+        self.collect_paths_recursive(expr, input, ctx, Vec::new(), &mut paths);
+        paths
+    }
+
+    /// Recursively collect paths from an expression
+    fn collect_paths_recursive(
+        &mut self,
+        expr: &Expr,
+        input: &Jv,
+        ctx: Rc<RefCell<Context>>,
+        current_path: Vec<Jv>,
+        paths: &mut Vec<Vec<Jv>>,
+    ) {
+        match &expr.kind {
+            ExprKind::Identity => {
+                paths.push(current_path);
+            }
+
+            ExprKind::Field(name) => {
+                let mut new_path = current_path;
+                new_path.push(Jv::string(name.clone()));
+                paths.push(new_path);
+            }
+
+            ExprKind::Index { expr: base_expr, index, .. } => {
+                // First collect paths from base expression
+                let mut base_paths = Vec::new();
+                self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
+
+                for base_path in base_paths {
+                    // Get value at base path to evaluate index against
+                    let base_value = get_value_at_path(input, &base_path);
+
+                    // Evaluate the index expression
+                    let mut interp = Interpreter { ctx: ctx.clone() };
+                    for idx_result in interp.eval_expr(index, base_value.clone(), ctx.clone()) {
+                        if let Ok(idx) = idx_result {
+                            let mut new_path = base_path.clone();
+                            new_path.push(idx);
+                            paths.push(new_path);
+                        }
+                    }
+                }
+            }
+
+            ExprKind::Iterator { expr: base_expr, .. } => {
+                // First collect paths from base expression
+                let mut base_paths = Vec::new();
+                self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
+
+                for base_path in base_paths {
+                    // Get value at base path
+                    let base_value = get_value_at_path(input, &base_path);
+
+                    // Iterate over all elements
+                    match &base_value {
+                        Jv::Array(arr) => {
+                            for i in 0..arr.len() {
+                                let mut new_path = base_path.clone();
+                                new_path.push(Jv::from_i64(i as i64));
+                                paths.push(new_path);
+                            }
+                        }
+                        Jv::Object(obj) => {
+                            for (k, _) in obj.iter() {
+                                let mut new_path = base_path.clone();
+                                new_path.push(Jv::string(k));
+                                paths.push(new_path);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            ExprKind::Pipe(left, right) => {
+                // For pipes, collect paths from left, then continue with right
+                let mut left_paths = Vec::new();
+                self.collect_paths_recursive(left, input, ctx.clone(), current_path, &mut left_paths);
+
+                for left_path in left_paths {
+                    // Navigate to the value at left path
+                    let left_value = get_value_at_path(input, &left_path);
+                    // Continue collecting from right with the left path as base
+                    self.collect_paths_recursive(right, &left_value, ctx.clone(), left_path, paths);
+                }
+            }
+
+            ExprKind::Comma(left, right) => {
+                // For comma, collect paths from both sides
+                self.collect_paths_recursive(left, input, ctx.clone(), current_path.clone(), paths);
+                self.collect_paths_recursive(right, input, ctx, current_path, paths);
+            }
+
+            ExprKind::Optional(inner) => {
+                // For optional, try to collect paths from inner
+                self.collect_paths_recursive(inner, input, ctx, current_path, paths);
+            }
+
+            ExprKind::Paren(inner) => {
+                self.collect_paths_recursive(inner, input, ctx, current_path, paths);
+            }
+
+            ExprKind::FunctionCall { module: None, name, args } if args.is_empty() => {
+                // Zero-argument function call might be a bound expression (parameter reference)
+                if let Some((bound_expr, bound_ctx)) = ctx.borrow().lookup_expr_with_context(name) {
+                    // This is a bound expression - recursively collect paths from it
+                    self.collect_paths_recursive(&bound_expr, input, bound_ctx, current_path, paths);
+                    return;
+                }
+
+                // Otherwise, treat as a function call that produces a value
+                // For functions like select(), we need to evaluate and filter
+                if name == "select" {
+                    // select always returns current path if condition passes
+                    paths.push(current_path);
+                } else {
+                    // Generic function - just use current path
+                    paths.push(current_path);
+                }
+            }
+
+            ExprKind::FunctionCall { module: None, name, args } if args.len() == 1 && name == "select" => {
+                // select(cond): returns current path if condition is true
+                let mut interp = Interpreter { ctx: ctx.clone() };
+                let value_at_path = get_value_at_path(input, &current_path);
+                if let Some(Ok(Jv::Bool(true))) = interp.eval_expr(&args[0], value_at_path, ctx).next() {
+                    paths.push(current_path);
+                }
+                // If condition is false or error, don't include this path
+            }
+
+            ExprKind::FunctionCall { module: None, name, args } if args.len() == 1 && name == "getpath" => {
+                // getpath(path_expr) - evaluate path_expr and use result as path
+                let mut interp = Interpreter { ctx: ctx.clone() };
+                let value_at_path = get_value_at_path(input, &current_path);
+
+                for path_result in interp.eval_expr(&args[0], value_at_path, ctx.clone()) {
+                    if let Ok(Jv::Array(path_arr)) = path_result {
+                        // Build full path: current_path + path from getpath argument
+                        let mut full_path = current_path.clone();
+                        for elem in path_arr.iter() {
+                            full_path.push(elem);
+                        }
+                        paths.push(full_path);
+                    }
+                }
+            }
+
+            _ => {
+                // For other expressions, just use current path
+                // This handles things like literals, etc.
+                paths.push(current_path);
+            }
+        }
     }
 
     /// Apply an update to each element via an iterator (e.g., .[] |= f)
