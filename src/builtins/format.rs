@@ -10,8 +10,18 @@ pub fn base64_encode(s: &str) -> String {
 
 /// Base64 decode a string
 pub fn base64_decode(s: &str) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let bytes = STANDARD.decode(s).map_err(|e| format!("base64 decode error: {}", e))?;
+    use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD, engine::general_purpose::STANDARD};
+
+    // Handle empty string and padding-only strings
+    let trimmed = s.trim_end_matches('=');
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Try standard first (with padding), then without padding
+    let bytes = STANDARD.decode(s)
+        .or_else(|_| STANDARD_NO_PAD.decode(trimmed))
+        .map_err(|e| format!("base64 decode error: {}", e))?;
     String::from_utf8(bytes).map_err(|e| format!("invalid UTF-8 in base64: {}", e))
 }
 

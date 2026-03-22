@@ -392,6 +392,37 @@
 - [x] Integration tests: 505/527 jq.test cases passing (95.8%)
   - Note: Some test file expectations don't match jq 1.8.1 behavior (error message formats)
 
+### Session 21 (2026-03-22)
+- [x] Added `fromdate` and `todate` built-in functions
+  - `fromdate` parses ISO 8601 dates to Unix timestamps
+  - `todate` converts Unix timestamps to ISO 8601 strings
+  - Both handle RFC3339 format and naive datetime with Z suffix
+- [x] Fixed `repeat(expr)` to stop on error (jq semantics)
+  - Errors from the inner expression now terminate repeat entirely
+  - `[repeat(.*2, error)?]` correctly produces `[2]`
+- [x] Fixed try-catch (`?`) to be lazy instead of collecting all results
+  - Prevents infinite loop when wrapping infinite iterators like `repeat`
+  - Properly terminates on first error for try without catch handler
+- [x] Fixed comma expression to propagate errors
+  - Errors in comma expressions now stop the entire expression
+  - `[(1, error, 2)?]` correctly produces `[1]` instead of `[1, 2]`
+- [x] Fixed `and`/`or` operators to short-circuit
+  - `false and error` now returns `false` without evaluating `error`
+  - `true or error` now returns `true` without evaluating `error`
+- [x] Fixed update expressions to return input when target produces no values
+  - `(. | select(.b) | .c) |= 1` on `{"a":1}` now returns `{"a":1}` unchanged
+- [x] All test suites now run without hanging
+- [x] Test results:
+  - jq.test: 505/527 (95.8%)
+  - man.test: 217/230 (94.3%)
+  - optional.test: 2/2 (100%)
+  - uri.test: 20/20 (100%)
+  - base64.test: 9/10 (90%)
+  - onig.test: 18/47 (38.3%) - advanced regex features
+  - manonig.test: 9/19 (47.4%) - regex manual tests
+- [x] Fixed @urid error message format to match jq
+- [x] Fixed @base64d error message format to match jq
+
 ## Known Limitations
 
 The remaining test failures are due to:
@@ -457,9 +488,12 @@ The remaining test failures are due to:
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 505           | 527         | 95.8%    |
-| base64.test| 0             | TBD         | 0%       |
-| uri.test   | 0             | TBD         | 0%       |
-| onig.test  | 0             | TBD         | 0%       |
+| man.test   | 217           | 230         | 94.3%    |
+| optional.test| 2           | 2           | 100%     |
+| uri.test   | 20            | 20          | 100%     |
+| base64.test| 9             | 10          | 90%      |
+| onig.test  | 18            | 47          | 38.3%    |
+| manonig.test| 9            | 19          | 47.4%    |
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project

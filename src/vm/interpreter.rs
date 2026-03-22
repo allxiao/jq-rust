@@ -310,24 +310,67 @@ impl Interpreter {
             }
 
             ExprKind::Comma(left, right) => {
-                let right_expr = right.clone();
                 let input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let left_results = this.eval_expr(left, input, ctx_clone.clone());
 
-                Box::new(left_results.chain(std::iter::from_fn({
-                    let mut done = false;
-                    move || {
-                        if done {
+                // In jq, when an error occurs in a comma expression, the error propagates
+                // and the rest of the comma expression is not evaluated
+                struct CommaIter {
+                    left: Box<dyn Iterator<Item = Result<Jv, String>>>,
+                    right: Option<Box<dyn Iterator<Item = Result<Jv, String>>>>,
+                    right_expr: Box<Expr>,
+                    input: Jv,
+                    ctx: Rc<RefCell<Context>>,
+                    errored: bool,
+                }
+
+                impl Iterator for CommaIter {
+                    type Item = Result<Jv, String>;
+
+                    fn next(&mut self) -> Option<Self::Item> {
+                        // If we've seen an error, stop producing values
+                        if self.errored {
                             return None;
                         }
-                        done = true;
-                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                        Some(inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone()))
+
+                        // Try to get next from left
+                        if let Some(result) = self.left.next() {
+                            if result.is_err() {
+                                self.errored = true;
+                            }
+                            return Some(result);
+                        }
+
+                        // Left exhausted, try right
+                        if self.right.is_none() {
+                            let mut inner = Interpreter { ctx: self.ctx.clone() };
+                            self.right = Some(inner.eval_expr(&self.right_expr, self.input.clone(), self.ctx.clone()));
+                        }
+
+                        if let Some(ref mut right_iter) = self.right {
+                            if let Some(result) = right_iter.next() {
+                                if result.is_err() {
+                                    self.errored = true;
+                                }
+                                return Some(result);
+                            }
+                        }
+
+                        None
                     }
-                }).flatten()))
+                }
+
+                Box::new(CommaIter {
+                    left: left_results,
+                    right: None,
+                    right_expr: right.clone(),
+                    input: input_clone,
+                    ctx: ctx_clone,
+                    errored: false,
+                })
             }
 
             ExprKind::Conditional { condition, then_branch, else_branch } => {
@@ -359,47 +402,132 @@ impl Interpreter {
 
             ExprKind::TryCatch { expr: try_expr, catch } => {
                 let catch_expr = catch.clone();
-                let _input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let results: Vec<_> = this.eval_expr(try_expr, input, ctx_clone.clone()).collect();
+                let results_iter = this.eval_expr(try_expr, input, ctx_clone.clone());
 
-                Box::new(results.into_iter().flat_map(move |result| {
-                    match result {
-                        Ok(v) => Box::new(std::iter::once(Ok(v))) as EvalResult,
-                        Err(e) => {
-                            // Check if this is a break signal - don't catch those
-                            if e.starts_with(BREAK_PREFIX) {
-                                return Box::new(std::iter::once(Err(e))) as EvalResult;
-                            }
+                // For try without catch (e?), on first error we stop iteration entirely
+                // For try-catch (try e catch handler), errors run the handler
+                struct TryCatchIter {
+                    inner: Box<dyn Iterator<Item = Result<Jv, String>>>,
+                    catch_expr: Option<Box<Expr>>,
+                    ctx: Rc<RefCell<Context>>,
+                    done: bool,
+                }
 
-                            if let Some(ref catch_e) = catch_expr {
-                                // Convert error string to Jv input for catch
-                                // If error was a JSON value, parse it back
-                                let err_input = if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
-                                    let json_str = &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
-                                    crate::jv::parse_json(json_str).unwrap_or_else(|_| Jv::string(&e))
+                impl Iterator for TryCatchIter {
+                    type Item = Result<Jv, String>;
+
+                    fn next(&mut self) -> Option<Self::Item> {
+                        if self.done {
+                            return None;
+                        }
+
+                        match self.inner.next() {
+                            Some(Ok(v)) => Some(Ok(v)),
+                            Some(Err(e)) => {
+                                // Check if this is a break signal - don't catch those
+                                if e.starts_with(BREAK_PREFIX) {
+                                    return Some(Err(e));
+                                }
+
+                                if let Some(ref catch_e) = self.catch_expr {
+                                    // Convert error string to Jv input for catch handler
+                                    let err_input = if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
+                                        let json_str = &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
+                                        crate::jv::parse_json(json_str).unwrap_or_else(|_| Jv::string(&e))
+                                    } else {
+                                        Jv::string(&e)
+                                    };
+                                    let mut inner = Interpreter { ctx: self.ctx.clone() };
+                                    // Evaluate catch handler and return first result
+                                    // Note: catch handler may produce multiple values
+                                    match inner.eval_expr(catch_e, err_input, self.ctx.clone()).next() {
+                                        Some(result) => Some(result),
+                                        None => self.next(), // catch produced empty, continue
+                                    }
                                 } else {
-                                    Jv::string(&e)
-                                };
-                                let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                inner.eval_expr(catch_e, err_input, ctx_clone.clone())
-                            } else {
-                                // No catch - suppress error
-                                Box::new(std::iter::empty())
+                                    // No catch - suppress error AND stop iteration entirely
+                                    // This is jq's behavior: e? stops on first error
+                                    self.done = true;
+                                    None
+                                }
                             }
+                            None => None,
                         }
                     }
-                }))
+                }
+
+                Box::new(TryCatchIter {
+                    inner: results_iter,
+                    catch_expr,
+                    ctx: ctx_clone,
+                    done: false,
+                })
             }
 
             ExprKind::BinaryOp { op, left, right } => {
                 let op = *op;
                 let left_expr = left.clone();
+                let right_expr = right.clone();
                 let input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
+                // Special handling for short-circuit operators (and, or)
+                match op {
+                    BinaryOp::And => {
+                        // left and right: if left is falsy, return false without evaluating right
+                        let mut this = Interpreter { ctx: ctx.clone() };
+                        return Box::new(this.eval_expr(&left_expr, input, ctx_clone.clone()).flat_map(move |left_result| {
+                            match left_result {
+                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                                Ok(left_val) => {
+                                    if !left_val.is_truthy() {
+                                        // Short-circuit: return false without evaluating right
+                                        Box::new(std::iter::once(Ok(Jv::Bool(false)))) as EvalResult
+                                    } else {
+                                        // Evaluate right side
+                                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                                        Box::new(inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone()).map(|right_result| {
+                                            match right_result {
+                                                Err(e) => Err(e),
+                                                Ok(right_val) => Ok(Jv::Bool(right_val.is_truthy())),
+                                            }
+                                        })) as EvalResult
+                                    }
+                                }
+                            }
+                        }));
+                    }
+                    BinaryOp::Or => {
+                        // left or right: if left is truthy, return true without evaluating right
+                        let mut this = Interpreter { ctx: ctx.clone() };
+                        return Box::new(this.eval_expr(&left_expr, input, ctx_clone.clone()).flat_map(move |left_result| {
+                            match left_result {
+                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                                Ok(left_val) => {
+                                    if left_val.is_truthy() {
+                                        // Short-circuit: return true without evaluating right
+                                        Box::new(std::iter::once(Ok(Jv::Bool(true)))) as EvalResult
+                                    } else {
+                                        // Evaluate right side
+                                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                                        Box::new(inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone()).map(|right_result| {
+                                            match right_result {
+                                                Err(e) => Err(e),
+                                                Ok(right_val) => Ok(Jv::Bool(right_val.is_truthy())),
+                                            }
+                                        })) as EvalResult
+                                    }
+                                }
+                            }
+                        }));
+                    }
+                    _ => {}
+                }
+
+                // For other operators, evaluate both sides
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let right_results = this.eval_expr(right, input, ctx_clone.clone());
 
@@ -797,6 +925,11 @@ impl Interpreter {
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
                 let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
+
+                // If no values selected (e.g., select filtered everything out), return input unchanged
+                if current_results.is_empty() {
+                    return Box::new(std::iter::once(Ok(input)));
+                }
 
                 Box::new(current_results.into_iter().flat_map(move |current_result| {
                     match current_result {
@@ -2796,39 +2929,50 @@ impl Interpreter {
     }
 
     fn eval_repeat(&mut self, expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
-        // repeat(f) - repeatedly apply f, yielding each result
+        // repeat(f) - repeatedly apply f to the same input, yielding each result
+        // def repeat(f): f, repeat(f);
+        // It applies f to the original input repeatedly
+        // When f produces an error, repeat terminates (propagates the error)
         let expr_clone = expr.clone();
         let ctx_clone = ctx.clone();
-        let current = input;
 
-        // Use an iterator that repeatedly applies expr
         struct RepeatIter {
             expr: Expr,
             ctx: Rc<RefCell<Context>>,
-            current: Jv,
+            input: Jv,
+            current_iter: Option<Box<dyn Iterator<Item = Result<Jv, String>>>>,
             count: usize,
+            done: bool,
         }
 
         impl Iterator for RepeatIter {
             type Item = Result<Jv, String>;
 
             fn next(&mut self) -> Option<Self::Item> {
-                if self.count > 10000 {
+                if self.done {
+                    return None;
+                }
+                if self.count > 100000 {
+                    self.done = true;
                     return Some(Err("repeat: too many iterations".to_string()));
                 }
-                self.count += 1;
 
-                let result = self.current.clone();
-
-                // Apply expression to get next value
-                let mut interp = Interpreter { ctx: self.ctx.clone() };
-                match interp.eval_expr(&self.expr, self.current.clone(), self.ctx.clone()).next() {
-                    Some(Ok(v)) => {
-                        self.current = v;
-                        Some(Ok(result))
+                loop {
+                    // If we have a current iterator, try to get next from it
+                    if let Some(ref mut iter) = self.current_iter {
+                        if let Some(result) = iter.next() {
+                            self.count += 1;
+                            // If we get an error, propagate it and stop repeat
+                            if result.is_err() {
+                                self.done = true;
+                            }
+                            return Some(result);
+                        }
                     }
-                    Some(Err(e)) => Some(Err(e)),
-                    None => None,
+
+                    // Start a new iteration of the expression
+                    let mut interp = Interpreter { ctx: self.ctx.clone() };
+                    self.current_iter = Some(interp.eval_expr(&self.expr, self.input.clone(), self.ctx.clone()));
                 }
             }
         }
@@ -2836,8 +2980,10 @@ impl Interpreter {
         Box::new(RepeatIter {
             expr: expr_clone,
             ctx: ctx_clone,
-            current,
+            input,
+            current_iter: None,
             count: 0,
+            done: false,
         })
     }
 

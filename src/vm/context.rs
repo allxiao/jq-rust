@@ -89,6 +89,10 @@ impl BuiltinRegistry {
         self.register("strftime", 1, builtin_strftime);
         self.register("strflocaltime", 1, builtin_strflocaltime);
         self.register("strptime", 1, builtin_strptime);
+        self.register("fromdate", 0, builtin_fromdate);
+        self.register("todate", 0, builtin_todate);
+        self.register("dateadd", 2, builtin_dateadd);
+        self.register("datesub", 2, builtin_datesub);
         self.register("modulemeta", 1, builtin_modulemeta);
         self.register("getpath", 1, builtin_getpath);
         self.register("delpaths", 1, builtin_delpaths);
@@ -819,6 +823,64 @@ fn builtin_strptime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
         }
         _ => err("strptime requires string".to_string()),
     }
+}
+
+fn builtin_fromdate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // fromdate parses ISO 8601 date strings and returns Unix timestamp
+    match &input {
+        Jv::String(s) => {
+            use chrono::{DateTime, Utc};
+            // Try parsing as ISO 8601 with timezone
+            match DateTime::parse_from_rfc3339(s.as_str()) {
+                Ok(dt) => ok(Jv::from_i64(dt.timestamp())),
+                Err(_) => {
+                    // Try as naive datetime with Z suffix
+                    use chrono::NaiveDateTime;
+                    let trimmed = s.as_str().trim_end_matches('Z');
+                    match NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S") {
+                        Ok(dt) => {
+                            let utc: DateTime<Utc> = DateTime::from_naive_utc_and_offset(dt, Utc);
+                            ok(Jv::from_i64(utc.timestamp()))
+                        }
+                        Err(_) => err(format!("cannot parse date: {}", s.as_str())),
+                    }
+                }
+            }
+        }
+        _ => err("fromdate requires string".to_string()),
+    }
+}
+
+fn builtin_todate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // todate converts Unix timestamp to ISO 8601 string
+    match &input {
+        Jv::Number(n) => {
+            use chrono::DateTime;
+            if let Some(ts) = n.as_i64() {
+                match DateTime::from_timestamp(ts, 0) {
+                    Some(dt) => ok(Jv::string(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())),
+                    None => err(format!("invalid timestamp: {}", ts)),
+                }
+            } else {
+                let ts = n.as_f64() as i64;
+                match DateTime::from_timestamp(ts, 0) {
+                    Some(dt) => ok(Jv::string(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())),
+                    None => err(format!("invalid timestamp: {}", ts)),
+                }
+            }
+        }
+        _ => err("todate requires number".to_string()),
+    }
+}
+
+fn builtin_dateadd(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // dateadd(unit; amount) - not commonly used, stub for now
+    err("dateadd not implemented".to_string())
+}
+
+fn builtin_datesub(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    // datesub(unit; amount) - not commonly used, stub for now
+    err("datesub not implemented".to_string())
 }
 
 fn builtin_modulemeta(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
@@ -2285,9 +2347,22 @@ fn builtin_base64(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
 fn builtin_base64d(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
-            match crate::builtins::format::base64_decode(s.as_str()) {
+            let s_str = s.as_str();
+            match crate::builtins::format::base64_decode(s_str) {
                 Ok(decoded) => ok(Jv::string(decoded)),
-                Err(e) => err(e),
+                Err(e) => {
+                    // Check for specific error types to provide jq-compatible messages
+                    let truncated = if s_str.len() > 10 {
+                        format!("{}...", &s_str[..10])
+                    } else {
+                        s_str.to_string()
+                    };
+                    if e.contains("6-bit remainder") {
+                        err(format!("string ({:?}) trailing base64 byte found", s_str))
+                    } else {
+                        err(format!("string ({:?}) is not valid base64 data", truncated))
+                    }
+                }
             }
         }
         _ => err("@base64d requires string input".to_string()),
@@ -2306,9 +2381,10 @@ fn builtin_uri(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
 fn builtin_urid(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
-            match crate::builtins::format::uri_decode(s.as_str()) {
+            let s_str = s.as_str();
+            match crate::builtins::format::uri_decode(s_str) {
                 Ok(decoded) => ok(Jv::string(decoded)),
-                Err(e) => err(e),
+                Err(_) => err(format!("string ({:?}) is not a valid uri encoding", s_str)),
             }
         }
         _ => err("@urid requires string input".to_string()),
