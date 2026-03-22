@@ -803,7 +803,7 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);
                     let new_child = set_at_path(child, rest, value)?;
-                    arr.set(normalized_idx, new_child);
+                    arr.set(normalized_idx, new_child)?;
                     Ok(Jv::Array(arr))
                 } else {
                     Err("array index must be integer".to_string())
@@ -875,7 +875,7 @@ fn builtin_delpaths(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
                 if let (Jv::Array(mut a), Some(idx)) = (current.clone(), n.as_i64()) {
                     if let Some(child) = a.get(idx) {
                         let new_child = del_at_path(child, rest);
-                        a.set(idx, new_child);
+                        let _ = a.set(idx, new_child);
                         return Jv::Array(a);
                     }
                 }

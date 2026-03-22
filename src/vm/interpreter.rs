@@ -838,10 +838,14 @@ impl Interpreter {
     }
 
     fn recurse(&mut self, input: Jv) -> EvalResult {
+        const MAX_RECURSE: usize = 100000;
         let mut results = vec![input.clone()];
         let mut queue = vec![input];
 
         while let Some(current) = queue.pop() {
+            if results.len() > MAX_RECURSE {
+                return Box::new(std::iter::once(Err("recurse: too many results".to_string())));
+            }
             match &current {
                 Jv::Array(arr) => {
                     for item in arr.iter() {
@@ -863,6 +867,7 @@ impl Interpreter {
     }
 
     fn eval_recurse_with(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        const MAX_RECURSE: usize = 100000;
         let filter_expr = filter.clone();
         let ctx_clone = ctx.clone();
 
@@ -870,6 +875,9 @@ impl Interpreter {
         let mut queue = vec![input];
 
         while let Some(current) = queue.pop() {
+            if results.len() > MAX_RECURSE {
+                return Box::new(std::iter::once(Err("recurse: too many results".to_string())));
+            }
             let mut inner = Interpreter { ctx: ctx_clone.clone() };
             for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
                 match result {
@@ -1930,18 +1938,14 @@ impl Interpreter {
                 }
                 Jv::Number(n) => {
                     if let (Some(idx), Jv::Array(arr)) = (n.as_i64(), target) {
-                        let idx = idx as usize;
-                        // Ensure array is big enough
-                        while arr.len() <= idx {
-                            arr.push(Jv::Null);
-                        }
+                        // Use arr.set which handles bounds checking
                         if rest.is_empty() {
-                            arr.set(idx as i64, value);
+                            let _ = arr.set(idx, value);
                         } else {
-                            let existing = arr.get(idx as i64).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
+                            let existing = arr.get(idx).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
                             let mut nested = existing;
                             set_at_path(&mut nested, rest, value);
-                            arr.set(idx as i64, nested);
+                            let _ = arr.set(idx, nested);
                         }
                     }
                 }
@@ -2080,7 +2084,7 @@ impl Interpreter {
                                             if actual_idx < 0 {
                                                 return Err("Out of bounds negative array index".to_string());
                                             }
-                                            arr.set(actual_idx, value);
+                                            arr.set(actual_idx, value)?;
                                             Ok(Jv::Array(arr))
                                         }
                                         Jv::Null => {
@@ -2088,7 +2092,7 @@ impl Interpreter {
                                                 return Err("Out of bounds negative array index".to_string());
                                             }
                                             let mut arr = JvArray::new();
-                                            arr.set(idx, value);
+                                            arr.set(idx, value)?;
                                             Ok(Jv::Array(arr))
                                         }
                                         _ => Err(format!("Cannot index {} with number", current.type_name())),
@@ -2189,6 +2193,9 @@ fn sub_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     }
 }
 
+/// Maximum string length for repetition (10MB to match reasonable jq limits)
+const MAX_STRING_REPEAT_SIZE: usize = 10_000_000;
+
 fn mul_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => Ok(Jv::Number(n1.mul(n2))),
@@ -2197,6 +2204,10 @@ fn mul_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
                 if count <= 0 {
                     Ok(Jv::Null)
                 } else {
+                    let result_len = s.len().saturating_mul(count as usize);
+                    if result_len > MAX_STRING_REPEAT_SIZE {
+                        return Err("Repeat string result too long".to_string());
+                    }
                     Ok(Jv::string(s.as_str().repeat(count as usize)))
                 }
             } else {

@@ -127,6 +127,17 @@
 - [x] Fixed splits() to use regex instead of literal string
 - [x] All 95 unit tests passing
 
+### Session 8 (2026-03-20)
+- [x] Fixed resource limit bugs that caused hangs/crashes:
+  - Added MAX_ARRAY_INDEX (1M) limit to prevent memory exhaustion on `.[999999999] = 0`
+  - Added MAX_STRING_REPEAT_SIZE (10M) limit for string multiplication
+  - Added MAX_PRINT_DEPTH (10K) limit for JSON printing to prevent stack overflow
+  - Added MAX_PARSING_DEPTH (10K) limit for JSON parsing
+- [x] JvArray::set() now returns Result<(), String> for bounds checking
+- [x] All 95 unit tests passing
+- [x] Integration tests: 224/527 jq.test cases passing (42%)
+- [x] Tests require RUST_MIN_STACK=16777216 for deep recursion tests
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)

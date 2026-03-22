@@ -6,6 +6,9 @@ use std::fmt::Write;
 
 use super::Jv;
 
+/// Maximum nesting depth for printing (matches jq's MAX_PRINT_DEPTH)
+const MAX_PRINT_DEPTH: usize = 10000;
+
 /// Options for JSON output formatting
 #[derive(Debug, Clone)]
 pub struct JvPrintOptions {
@@ -27,6 +30,8 @@ pub struct JvPrintOptions {
     pub join_output: bool,
     /// Use colors for output (not implemented yet)
     pub color: bool,
+    /// Current recursion depth (internal use)
+    pub depth: usize,
 }
 
 impl Default for JvPrintOptions {
@@ -41,6 +46,7 @@ impl Default for JvPrintOptions {
             raw_output: false,
             join_output: false,
             color: false,
+            depth: 0,
         }
     }
 }
@@ -78,6 +84,7 @@ impl JvPrintOptions {
     fn nested(&self) -> Self {
         JvPrintOptions {
             indent_level: self.indent_level + 1,
+            depth: self.depth + 1,
             ..self.clone()
         }
     }
@@ -158,6 +165,11 @@ fn write_array<W: Write>(
     arr: &super::JvArray,
     options: &JvPrintOptions,
 ) -> std::fmt::Result {
+    // Check depth limit
+    if options.depth >= MAX_PRINT_DEPTH {
+        return w.write_str("<skipped: too deep>");
+    }
+
     w.write_char('[')?;
 
     let items: Vec<Jv> = arr.iter().collect();
@@ -190,6 +202,11 @@ fn write_object<W: Write>(
     obj: &super::JvObject,
     options: &JvPrintOptions,
 ) -> std::fmt::Result {
+    // Check depth limit
+    if options.depth >= MAX_PRINT_DEPTH {
+        return w.write_str("<skipped: too deep>");
+    }
+
     w.write_char('{')?;
 
     let mut entries: Vec<(String, Jv)> = obj.iter().collect();

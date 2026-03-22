@@ -5,10 +5,14 @@
 use super::{Jv, JvArray, JvObject, JvNumber, JvString};
 use crate::error::JqError;
 
+/// Maximum nesting depth for parsing (matches jq's MAX_PARSING_DEPTH)
+const MAX_PARSING_DEPTH: usize = 10000;
+
 /// JSON parser
 pub struct JsonParser<'a> {
     input: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> JsonParser<'a> {
@@ -16,6 +20,7 @@ impl<'a> JsonParser<'a> {
         JsonParser {
             input: input.as_bytes(),
             pos: 0,
+            depth: 0,
         }
     }
 
@@ -307,6 +312,12 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_array(&mut self) -> Result<Jv, JqError> {
+        // Check depth limit
+        if self.depth >= MAX_PARSING_DEPTH {
+            return Err(JqError::Parse("Exceeds depth limit for parsing".to_string()));
+        }
+        self.depth += 1;
+
         self.expect(b'[')?;
         self.skip_whitespace();
 
@@ -314,6 +325,7 @@ impl<'a> JsonParser<'a> {
 
         if self.peek() == Some(&b']') {
             self.pos += 1;
+            self.depth -= 1;
             return Ok(Jv::Array(arr));
         }
 
@@ -344,10 +356,17 @@ impl<'a> JsonParser<'a> {
             }
         }
 
+        self.depth -= 1;
         Ok(Jv::Array(arr))
     }
 
     fn parse_object(&mut self) -> Result<Jv, JqError> {
+        // Check depth limit
+        if self.depth >= MAX_PARSING_DEPTH {
+            return Err(JqError::Parse("Exceeds depth limit for parsing".to_string()));
+        }
+        self.depth += 1;
+
         self.expect(b'{')?;
         self.skip_whitespace();
 
@@ -355,6 +374,7 @@ impl<'a> JsonParser<'a> {
 
         if self.peek() == Some(&b'}') {
             self.pos += 1;
+            self.depth -= 1;
             return Ok(Jv::Object(obj));
         }
 
@@ -399,6 +419,8 @@ impl<'a> JsonParser<'a> {
                 }
             }
         }
+
+        self.depth -= 1;
 
         Ok(Jv::Object(obj))
     }

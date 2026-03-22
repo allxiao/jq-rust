@@ -8,6 +8,7 @@ pub mod error;
 pub mod parser;
 pub mod vm;
 pub mod builtins;
+pub mod testing;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;

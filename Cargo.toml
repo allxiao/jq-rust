@@ -21,6 +21,10 @@ pretty_assertions = "1.4"
 name = "jq"
 path = "src/main.rs"
 
+[[bin]]
+name = "run-tests"
+path = "src/bin/run_tests.rs"
+
 [lib]
 name = "jq_rust"
 path = "src/lib.rs"

@@ -10,6 +10,10 @@ use std::cell::RefCell;
 
 use super::Jv;
 
+/// Maximum array index allowed (matches jq's behavior)
+/// jq typically allows up to ~1 million elements before erroring
+const MAX_ARRAY_INDEX: usize = 1_000_000;
+
 /// JSON array value
 ///
 /// Uses reference counting with copy-on-write for efficient cloning.
@@ -74,7 +78,8 @@ impl JvArray {
     /// Set element at index
     /// Supports negative indexing
     /// Extends array if necessary for positive indices
-    pub fn set(&mut self, index: i64, value: Jv) {
+    /// Returns error if index is too large (> MAX_ARRAY_INDEX)
+    pub fn set(&mut self, index: i64, value: Jv) -> Result<(), String> {
         // Ensure unique ownership before mutation
         self.make_unique();
 
@@ -84,18 +89,24 @@ impl JvArray {
         let idx = if index < 0 {
             let i = len + index;
             if i < 0 {
-                return; // Invalid negative index, jq ignores it
+                return Ok(()); // Invalid negative index, jq ignores it
             }
             i as usize
         } else {
             index as usize
         };
 
+        // Check for too large index
+        if idx > MAX_ARRAY_INDEX {
+            return Err("Array index too large".to_string());
+        }
+
         // Extend array if needed
         while arr.len() <= idx {
             arr.push(Jv::Null);
         }
         arr[idx] = value;
+        Ok(())
     }
 
     /// Push a value to the end

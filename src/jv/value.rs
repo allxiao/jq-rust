@@ -330,7 +330,7 @@ impl Jv {
         match (self, idx) {
             (Jv::Array(arr), Jv::Number(n)) => {
                 if let Some(i) = n.as_i64() {
-                    arr.set(i, value);
+                    arr.set(i, value).map_err(JqError::Type)?;
                     Ok(())
                 } else {
                     Err(JqError::Type("array index must be integer".to_string()))
