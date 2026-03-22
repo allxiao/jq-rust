@@ -1311,6 +1311,50 @@ impl Interpreter {
     }
 
     fn eval_object(&mut self, entries: &[crate::parser::ObjectEntry], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // Fast path: single-result entries (no generators) - most common case
+        // This avoids the expensive cartesian product calculation
+        let mut is_simple = true;
+        let mut simple_entries: Vec<(String, Jv)> = Vec::with_capacity(entries.len());
+
+        for entry in entries {
+            // Check if key is simple (not an expression that could produce multiple values)
+            let key_str = match &entry.key {
+                ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => {
+                    s.clone()
+                }
+                ObjectKey::Expr(_) => {
+                    is_simple = false;
+                    break;
+                }
+            };
+
+            // Evaluate value - check if it produces exactly one result
+            let mut val_interp = Interpreter { ctx: ctx.clone() };
+            let mut val_iter = val_interp.eval_expr(&entry.value, input.clone(), ctx.clone());
+
+            match val_iter.next() {
+                Some(Ok(v)) => {
+                    // Check if there are more values (generator)
+                    if val_iter.next().is_some() {
+                        is_simple = false;
+                        break;
+                    }
+                    simple_entries.push((key_str, v));
+                }
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => {
+                    // Empty - skip this entry but continue
+                }
+            }
+        }
+
+        // Fast path: construct object directly from entries
+        if is_simple {
+            let obj = JvObject::from_entries_vec(simple_entries);
+            return Box::new(std::iter::once(Ok(Jv::Object(obj))));
+        }
+
+        // Slow path: handle generators with cartesian product
         // Object construction with generators: {x: (1,2)} produces {x:1}, {x:2}
         // For multiple entries with generators, we compute the cartesian product
 
@@ -1353,7 +1397,7 @@ impl Interpreter {
             }
 
             // Combine keys and values (cartesian product for this entry)
-            let mut entry_combos: Vec<(String, Jv)> = Vec::new();
+            let mut entry_combos: Vec<(String, Jv)> = Vec::with_capacity(key_strs.len() * values.len());
             for key in &key_strs {
                 for val in &values {
                     entry_combos.push((key.clone(), val.clone()));
@@ -1376,10 +1420,11 @@ impl Interpreter {
             }
             let first = &lists[0];
             let rest = cartesian_product(&lists[1..]);
-            let mut result = Vec::new();
+            let mut result = Vec::with_capacity(first.len() * rest.len());
             for item in first {
                 for r in &rest {
-                    let mut combo = vec![item.clone()];
+                    let mut combo = Vec::with_capacity(1 + r.len());
+                    combo.push(item.clone());
                     combo.extend(r.iter().cloned());
                     result.push(combo);
                 }
@@ -1389,11 +1434,7 @@ impl Interpreter {
 
         let combinations = cartesian_product(&entry_results);
         let results: Vec<_> = combinations.into_iter().map(|combo| {
-            let mut obj = JvObject::new();
-            for (key, val) in combo {
-                obj.set(&key, val);
-            }
-            Ok(Jv::Object(obj))
+            Ok(Jv::Object(JvObject::from_entries_vec(combo)))
         }).collect();
 
         Box::new(results.into_iter())

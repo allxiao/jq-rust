@@ -46,6 +46,15 @@ impl JvObject {
         }
     }
 
+    /// Create an object from pre-collected entries (avoids intermediate cloning)
+    #[inline]
+    pub fn from_entries_vec(entries: Vec<(String, Jv)>) -> Self {
+        let map: BTreeMap<String, Jv> = entries.into_iter().collect();
+        JvObject {
+            inner: Rc::new(RefCell::new(map)),
+        }
+    }
+
     /// Get the number of keys
     #[inline]
     pub fn len(&self) -> usize {
