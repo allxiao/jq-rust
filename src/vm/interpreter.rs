@@ -953,6 +953,56 @@ impl Interpreter {
                     }
                 }
 
+                // Special handling for recursive descent: .. |= f
+                if let ExprKind::RecursiveDescent = &effective_target.kind {
+                    return self.apply_update_recursive_descent(
+                        input,
+                        &value_expr,
+                        None,
+                        None,
+                        ctx_clone,
+                    );
+                }
+
+                // Special handling for (.. | filter) |= f or (.. | filter | path) |= f
+                // Check if the leftmost element of the pipe chain is RecursiveDescent
+                if let ExprKind::Pipe(left, right) = &effective_target.kind {
+                    if let ExprKind::RecursiveDescent = &left.kind {
+                        // Check if right is also a pipe: .. | (filter | path)
+                        if let ExprKind::Pipe(filter_expr, path_expr) = &right.kind {
+                            // (.. | filter | path) |= f
+                            return self.apply_update_recursive_descent(
+                                input,
+                                &value_expr,
+                                Some(filter_expr.as_ref()),
+                                Some(path_expr.as_ref()),
+                                ctx_clone,
+                            );
+                        }
+                        // Simple case: (.. | filter) |= f
+                        return self.apply_update_recursive_descent(
+                            input,
+                            &value_expr,
+                            Some(right.as_ref()),
+                            None,
+                            ctx_clone,
+                        );
+                    }
+                    // Also check left-associative: (.. | filter) | path = Pipe(Pipe(.., filter), path)
+                    if let ExprKind::Pipe(ll, lr) = &left.kind {
+                        if let ExprKind::RecursiveDescent = &ll.kind {
+                            // (.. | filter) | path |= f
+                            return self.apply_update_recursive_descent(
+                                input,
+                                &value_expr,
+                                Some(lr.as_ref()),
+                                Some(right.as_ref()),
+                                ctx_clone,
+                            );
+                        }
+                    }
+                }
+
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
                 let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
@@ -1221,6 +1271,10 @@ impl Interpreter {
             ("INDEX", 2) => return self.eval_index2(&args[0], &args[1], input, ctx),
             ("JOIN", 2) => return self.eval_join2(&args[0], &args[1], input, ctx),
             ("JOIN", 3) => return self.eval_join3(&args[0], &args[1], &args[2], input, ctx),
+            ("sub", 2) => return self.eval_sub(&args[0], &args[1], input, ctx, false),
+            ("gsub", 2) => return self.eval_sub(&args[0], &args[1], input, ctx, true),
+            ("sub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, false),
+            ("gsub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, true),
             ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
                 // These are handled as regular builtins
             }
@@ -3230,6 +3284,209 @@ impl Interpreter {
         }
     }
 
+    /// Evaluate sub/gsub with proper interpolation support
+    fn eval_sub(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
+        self.eval_sub_impl(pattern_expr, replacement_expr, None, input, ctx, global)
+    }
+
+    fn eval_sub_flags(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, flags_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
+        self.eval_sub_impl(pattern_expr, replacement_expr, Some(flags_expr), input, ctx, global)
+    }
+
+    fn eval_sub_impl(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, flags_expr: Option<&Expr>, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
+        // Evaluate pattern
+        let pattern = match self.eval_expr(pattern_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(Jv::String(s))) => s.as_str().to_string(),
+            Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("sub/gsub pattern must be string, got {}", v.type_name())))),
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        // Evaluate flags if present
+        let flags = if let Some(flags_e) = flags_expr {
+            match self.eval_expr(flags_e, input.clone(), ctx.clone()).next() {
+                Some(Ok(Jv::String(s))) => s.as_str().to_string(),
+                Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("sub/gsub flags must be string, got {}", v.type_name())))),
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => String::new(),
+            }
+        } else {
+            String::new()
+        };
+
+        // 'g' flag in flags string makes sub behave like gsub
+        let is_global = global || flags.contains('g');
+
+        // Build regex with flags
+        let mut regex_pattern = String::new();
+        if flags.contains('i') {
+            regex_pattern.push_str("(?i)");
+        }
+        if flags.contains('x') {
+            regex_pattern.push_str("(?x)");
+        }
+        if flags.contains('s') {
+            regex_pattern.push_str("(?s)");
+        }
+        if flags.contains('m') {
+            regex_pattern.push_str("(?m)");
+        }
+        regex_pattern.push_str(&pattern);
+
+        let s = match &input {
+            Jv::String(s) => s.as_str().to_string(),
+            _ => return Box::new(std::iter::once(Err(format!("sub/gsub requires string input, got {}", input.type_name())))),
+        };
+
+        let re = match regex::Regex::new(&regex_pattern) {
+            Ok(r) => r,
+            Err(e) => return Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
+        };
+
+        // Get named capture groups
+        let capture_names: Vec<Option<&str>> = re.capture_names().collect();
+
+        let replacement_expr = replacement_expr.clone();
+        let ctx_clone = ctx.clone();
+
+        // Process replacements
+        if is_global {
+            // gsub - replace all matches
+            // Collect all captures first
+            let mut all_caps: Vec<_> = re.captures_iter(&s).collect();
+
+            // Check if we should add an empty match at the very end
+            // jq/oniguruma includes an empty match at position len if the pattern can match there
+            // but Rust regex only includes it if the previous match didn't end there
+            let last_end = all_caps.last().map(|c| c.get(0).unwrap().end()).unwrap_or(0);
+            if last_end == s.len() && !all_caps.is_empty() {
+                // Previous match ended exactly at the end of string
+                // Only add empty match if the pattern can match empty AND last match was non-empty
+                let last_was_nonempty = all_caps.last()
+                    .map(|c| c.get(0).unwrap().end() > c.get(0).unwrap().start())
+                    .unwrap_or(false);
+                if last_was_nonempty && re.is_match("") {
+                    if let Some(caps) = re.captures_at(&s, s.len()) {
+                        if caps.get(0).unwrap().start() == s.len() && caps.get(0).unwrap().end() == s.len() {
+                            all_caps.push(caps);
+                        }
+                    }
+                }
+            }
+
+            if all_caps.is_empty() {
+                // No match, return input unchanged
+                return Box::new(std::iter::once(Ok(input)));
+            }
+
+            // For each capture, collect all replacement values
+            let mut caps_with_replacements: Vec<(regex::Captures, Vec<String>)> = Vec::new();
+            for caps in all_caps {
+                let capture_obj = self.build_capture_object(&caps, &capture_names);
+
+                // Collect ALL replacement values from evaluating the expression
+                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut replacements = Vec::new();
+                for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
+                    match result {
+                        Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
+                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Err(e) => return Box::new(std::iter::once(Err(e))),
+                    }
+                }
+                if replacements.is_empty() {
+                    replacements.push(String::new()); // Empty replacement
+                }
+                caps_with_replacements.push((caps, replacements));
+            }
+
+            // Generate cartesian product of all replacement combinations
+            // For simplicity, if there are multiple matches and multiple replacements,
+            // we use the same replacement index for all matches
+            let max_replacements = caps_with_replacements.iter().map(|(_, r)| r.len()).max().unwrap_or(1);
+
+            let mut results = Vec::new();
+            for repl_idx in 0..max_replacements {
+                let mut result = String::new();
+                let mut last_end = 0;
+
+                for (caps, replacements) in &caps_with_replacements {
+                    let m = caps.get(0).unwrap();
+                    result.push_str(&s[last_end..m.start()]);
+
+                    // Use repl_idx if available, otherwise use the last replacement
+                    let repl = if repl_idx < replacements.len() {
+                        &replacements[repl_idx]
+                    } else {
+                        replacements.last().unwrap()
+                    };
+                    result.push_str(repl);
+
+                    last_end = m.end();
+                }
+
+                result.push_str(&s[last_end..]);
+                results.push(Ok(Jv::string(result)));
+            }
+
+            Box::new(results.into_iter())
+        } else {
+            // sub - replace first match only
+            if let Some(caps) = re.captures(&s) {
+                let m = caps.get(0).unwrap();
+
+                // Build capture object
+                let capture_obj = self.build_capture_object(&caps, &capture_names);
+
+                // Collect ALL replacement values from evaluating the expression
+                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut results = Vec::new();
+
+                for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
+                    match result {
+                        Ok(Jv::String(repl)) => {
+                            let mut res = String::new();
+                            res.push_str(&s[..m.start()]);
+                            res.push_str(repl.as_str());
+                            res.push_str(&s[m.end()..]);
+                            results.push(Ok(Jv::string(res)));
+                        }
+                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Err(e) => return Box::new(std::iter::once(Err(e))),
+                    }
+                }
+
+                if results.is_empty() {
+                    // No replacement values, return unchanged
+                    Box::new(std::iter::once(Ok(input)))
+                } else {
+                    Box::new(results.into_iter())
+                }
+            } else {
+                // No match, return input unchanged
+                Box::new(std::iter::once(Ok(input)))
+            }
+        }
+    }
+
+    /// Build a capture object from regex captures for sub/gsub replacement
+    fn build_capture_object(&self, caps: &regex::Captures, capture_names: &[Option<&str>]) -> Jv {
+        let mut obj = crate::jv::JvObject::new();
+
+        // Add named captures
+        for (i, name_opt) in capture_names.iter().enumerate() {
+            if let Some(name) = name_opt {
+                if let Some(m) = caps.get(i) {
+                    obj.set(name, Jv::string(m.as_str()));
+                } else {
+                    obj.set(name, Jv::Null);
+                }
+            }
+        }
+
+        Jv::Object(obj)
+    }
+
     fn eval_with_entries(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         // with_entries(f) = to_entries | map(f) | from_entries
         match &input {
@@ -3899,6 +4156,189 @@ impl Interpreter {
             ExprKind::Index { .. } => true,
             ExprKind::Slice { .. } => true,
             _ => false,
+        }
+    }
+
+    /// Apply update to recursive descent: .. |= f or (.. | filter) |= f or (.. | filter | path) |= f
+    fn apply_update_recursive_descent(
+        &mut self,
+        input: Jv,
+        value_expr: &Expr,
+        filter: Option<&Expr>,
+        path_expr: Option<&Expr>,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
+        // Collect all paths using path(..)
+        let mut all_paths: Vec<Vec<Jv>> = Vec::new();
+        self.collect_recursive_paths(&input, &mut all_paths, Vec::new());
+
+        // Sort paths by length descending (deepest first)
+        // This ensures we update children before parents
+        all_paths.sort_by(|a, b| b.len().cmp(&a.len()));
+
+        // Apply updates
+        let mut result = input;
+        for path in all_paths {
+            // Get value at this path
+            let value_at_path = {
+                let mut current = result.clone();
+                let mut valid = true;
+                for key in &path {
+                    current = current.index(key);
+                    if matches!(current, Jv::Invalid(_)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if !valid {
+                    continue; // Path no longer valid after earlier update
+                }
+                current
+            };
+
+            // If there's a filter, check if value passes
+            if let Some(filter_expr) = filter {
+                let mut filter_interp = Interpreter { ctx: ctx.clone() };
+                let filter_result = filter_interp.eval_expr(filter_expr, value_at_path.clone(), ctx.clone()).next();
+
+                match filter_result {
+                    Some(Ok(_)) => {
+                        // Filter passed - continue to path expression or update
+                    }
+                    Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                    None => {
+                        // Filter produced no output - skip this path
+                        continue;
+                    }
+                }
+            }
+
+            // If there's a path expression (like .b), evaluate it and extend the path
+            let (update_path, update_value) = if let Some(pe) = path_expr {
+                // Get the path components from evaluating path(path_expr)
+                let mut path_interp = Interpreter { ctx: ctx.clone() };
+
+                // First evaluate path_expr to get the value we're updating
+                let value_to_update = match path_interp.eval_expr(pe, value_at_path.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                    None => continue, // Path produced no output
+                };
+
+                // Now we need to figure out what path components the path_expr adds
+                // For simple cases like .b, we can extract the field name
+                let extended_path = match &pe.kind {
+                    ExprKind::Field(name) => {
+                        let mut p = path.clone();
+                        p.push(Jv::string(name));
+                        p
+                    }
+                    ExprKind::Index { expr: base, index, .. } if matches!(base.kind, ExprKind::Identity) => {
+                        // .[index] - evaluate index and add to path
+                        let mut idx_interp = Interpreter { ctx: ctx.clone() };
+                        match idx_interp.eval_expr(index, value_at_path.clone(), ctx.clone()).next() {
+                            Some(Ok(idx_val)) => {
+                                let mut p = path.clone();
+                                p.push(idx_val);
+                                p
+                            }
+                            _ => continue,
+                        }
+                    }
+                    _ => {
+                        // For more complex expressions, we can't easily determine the path
+                        // Fall back to not extending
+                        continue;
+                    }
+                };
+
+                (extended_path, value_to_update)
+            } else {
+                (path.clone(), value_at_path)
+            };
+
+            // Apply value expression
+            let mut val_interp = Interpreter { ctx: ctx.clone() };
+            let new_value = match val_interp.eval_expr(value_expr, update_value, ctx.clone()).next() {
+                Some(Ok(v)) => v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => continue, // Empty update - skip
+            };
+
+            // Set the new value at path
+            let path_vec: Vec<_> = update_path.iter().collect();
+            result = match Self::setpath_at(&result, &path_vec, new_value) {
+                Ok(v) => v,
+                Err(_) => continue, // Ignore errors (structure may have changed)
+            };
+        }
+
+        Box::new(std::iter::once(Ok(result)))
+    }
+
+    /// Helper to set a value at a path
+    fn setpath_at(current: &Jv, path: &[&Jv], value: Jv) -> Result<Jv, String> {
+        if path.is_empty() {
+            return Ok(value);
+        }
+        let key = path[0];
+        let rest = &path[1..];
+
+        match key {
+            Jv::String(s) => {
+                let mut obj = match current {
+                    Jv::Object(o) => o.clone(),
+                    Jv::Null => crate::jv::JvObject::new(),
+                    _ => return Err("cannot index non-object with string".to_string()),
+                };
+                let child = obj.get(s.as_str()).unwrap_or(Jv::Null);
+                let new_child = Self::setpath_at(&child, rest, value)?;
+                obj.set(s.as_str(), new_child);
+                Ok(Jv::Object(obj))
+            }
+            Jv::Number(n) => {
+                if let Some(idx) = n.as_i64() {
+                    let mut arr = match current {
+                        Jv::Array(a) => a.clone(),
+                        Jv::Null => crate::jv::JvArray::new(),
+                        _ => return Err(format!("Cannot index {} with number", current.type_name())),
+                    };
+                    let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
+                    let child = arr.get(normalized_idx).unwrap_or(Jv::Null);
+                    let new_child = Self::setpath_at(&child, rest, value)?;
+                    arr.set(normalized_idx, new_child)?;
+                    Ok(Jv::Array(arr))
+                } else {
+                    Err("array index must be integer".to_string())
+                }
+            }
+            _ => Err("path element must be string or number".to_string()),
+        }
+    }
+
+    /// Recursively collect all paths in a value
+    fn collect_recursive_paths(&self, value: &Jv, paths: &mut Vec<Vec<Jv>>, current_path: Vec<Jv>) {
+        // Add current path (including empty path for root)
+        paths.push(current_path.clone());
+
+        match value {
+            Jv::Array(arr) => {
+                for (i, elem) in arr.iter().enumerate() {
+                    let mut child_path = current_path.clone();
+                    child_path.push(Jv::from_i64(i as i64));
+                    self.collect_recursive_paths(&elem, paths, child_path);
+                }
+            }
+            Jv::Object(obj) => {
+                for (key, val) in obj.iter() {
+                    let mut child_path = current_path.clone();
+                    child_path.push(Jv::string(key));
+                    self.collect_recursive_paths(&val, paths, child_path);
+                }
+            }
+            _ => {
+                // Scalars have no children
+            }
         }
     }
 

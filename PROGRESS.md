@@ -449,22 +449,42 @@
 - [x] Added comma expression support in assignment targets
   - `(.a, .b) = value` assigns value to both paths
   - `(.a, .b) |= expr` applies update once and uses same value for both paths
+- [x] Fixed Unicode offsets in match results
+  - `match` now returns character offsets/lengths instead of byte offsets
+  - Added helper functions for byte-to-char offset conversion
+- [x] Implemented sub/gsub with proper jq string interpolation
+  - Made sub/gsub special interpreter functions
+  - Replacement expression receives capture object as input
+  - `\(.x)` in replacement correctly interpolates named captures
+- [x] Added support for multiple replacement expressions
+  - `[sub("(.)"; "\(.a|ascii_upcase)", "\(.a|ascii_downcase)")]` produces multiple outputs
+- [x] Added 'g' flag support for sub/3 (makes sub behave like gsub)
+  - `sub("pattern"; "repl"; "g")` replaces all matches
+- [x] Fixed gsub to include empty match at end when pattern can match empty
+  - Pattern `[^a-z]*(?<x>[a-z]*)` correctly matches empty string at end of "123foo456bar"
 - [x] Updated test results:
-  - onig.test: 29/47 (61.7%) - up from 38.3%
-  - manonig.test: 16/19 (84.2%) - up from 47.4%
-  - man.test: 225/230 (97.8%) - up from 96.9%
+  - jq.test: 506/527 (96.0%) - up from 95.8%
+  - onig.test: 46/47 (97.9%) - only lookahead failure (unsupported by Rust regex)
+  - manonig.test: 19/19 (100%)
+  - man.test: 226/230 (98.3%)
+  - base64.test: 9/10 (90%)
+  - optional.test: 2/2 (100%)
+- [x] Implemented `.. |= f` recursive descent update
+  - Also supports `(.. | filter) |= f` pattern
+  - Also supports `(.. | filter | path) |= f` pattern (e.g., `(.. | select(...) | .b) |= .[0]`)
+  - Updates are applied deepest-first to avoid path invalidation
 
 ## Known Limitations
 
 The remaining test failures are due to:
 
-1. **Module system** - import/include and modulemeta not implemented (9 errors)
+1. **Module system** - import/include and modulemeta not implemented (9 errors in jq.test)
 2. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
-3. **Function call as lvalue** - `def x: .[1,2]; x=10` should work
+3. **Lookahead/lookbehind regex** - Rust's regex crate doesn't support `(?=...)` patterns
 4. **Error message formats** - Some parse/runtime error messages differ from jq or test file
 5. **Extreme exponents** - Numbers like `9E999999999` should preserve their notation
-6. **Test file version mismatch** - Some tests expect older jq behavior (24-char truncation)
-7. **Complex path with recursive descent** - `(.. | select(...)) |= f` patterns
+6. **Complex path with recursive descent** - `(.. | select(...)) |= f` patterns
+7. **Streaming functions** - truncate_stream and related streaming features
 
 ## Phase Progress
 
