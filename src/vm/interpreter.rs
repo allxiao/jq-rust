@@ -288,28 +288,30 @@ impl Interpreter {
             }
 
             ExprKind::Conditional { condition, then_branch, else_branch } => {
+                let condition_expr = condition.clone();
                 let then_expr = then_branch.clone();
                 let else_expr = else_branch.clone();
-                let input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let cond_result = this.eval_expr(condition, input, ctx_clone.clone()).next();
+                let cond_results: Vec<_> = this.eval_expr(&condition_expr, input.clone(), ctx_clone.clone()).collect();
 
-                match cond_result {
-                    Some(Err(e)) => Box::new(std::iter::once(Err(e))),
-                    Some(Ok(v)) => {
-                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                        if v.is_truthy() {
-                            inner.eval_expr(&then_expr, input_clone, ctx_clone)
-                        } else if let Some(ref else_e) = else_expr {
-                            inner.eval_expr(else_e, input_clone, ctx_clone)
-                        } else {
-                            Box::new(std::iter::once(Ok(Jv::Null)))
+                Box::new(cond_results.into_iter().flat_map(move |cond_result| {
+                    match cond_result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(v) => {
+                            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                            if v.is_truthy() {
+                                inner.eval_expr(&then_expr, input.clone(), ctx_clone.clone())
+                            } else if let Some(ref else_e) = else_expr {
+                                inner.eval_expr(else_e, input.clone(), ctx_clone.clone())
+                            } else {
+                                // No else branch and condition is falsy: return null
+                                Box::new(std::iter::once(Ok(Jv::Null)))
+                            }
                         }
                     }
-                    None => Box::new(std::iter::empty()),
-                }
+                }))
             }
 
             ExprKind::TryCatch { expr: try_expr, catch } => {
@@ -533,7 +535,7 @@ impl Interpreter {
             ExprKind::Loc => {
                 // Return location object - simplified version
                 let mut obj = JvObject::new();
-                obj.set("file", Jv::string("<input>"));
+                obj.set("file", Jv::string("<top-level>"));
                 obj.set("line", Jv::from_i64(1));
                 Box::new(std::iter::once(Ok(Jv::Object(obj))))
             }
@@ -618,6 +620,120 @@ impl Interpreter {
                 let value_expr = value.clone();
                 let ctx_clone = ctx.clone();
 
+                // Unwrap Paren if present
+                let effective_target = if let ExprKind::Paren(inner) = &target_expr.kind {
+                    inner.as_ref()
+                } else {
+                    &target_expr
+                };
+
+                // Special handling for iterator targets like .[] |= f
+                if let ExprKind::Iterator { expr: iter_base, optional: _ } = &effective_target.kind {
+                    return self.apply_update_to_iterator(
+                        input,
+                        iter_base,
+                        &value_expr,
+                        ctx_clone,
+                    );
+                }
+
+                // Special handling for (.[] | filter) |= f
+                // This is a path-based update that should update elements where the filter matches
+                if let ExprKind::Pipe(left, right) = &effective_target.kind {
+                    if let ExprKind::Iterator { expr: iter_base, optional: _ } = &left.kind {
+                        // (.[] | filter) |= f - for each element, if filter passes, apply f
+                        let iter_base_clone = iter_base.clone();
+                        let filter_expr = right.clone();
+                        let value_expr_clone = value_expr.clone();
+                        let ctx_for_closure = ctx_clone.clone();
+
+                        return Box::new(std::iter::once((|| {
+                            // Get the container
+                            let container = if let ExprKind::Identity = iter_base_clone.kind {
+                                input.clone()
+                            } else {
+                                let mut interp = Interpreter { ctx: ctx_for_closure.clone() };
+                                match interp.eval_expr(&iter_base_clone, input.clone(), ctx_for_closure.clone()).next() {
+                                    Some(Ok(v)) => v,
+                                    Some(Err(e)) => return Err(e),
+                                    None => return Err("iterator base produced no value".to_string()),
+                                }
+                            };
+
+                            match container {
+                                Jv::Array(arr) => {
+                                    // For each element, check if filter passes, if so apply the update
+                                    let mut result = Vec::new();
+                                    for elem in arr.iter() {
+                                        // Check if element passes the filter
+                                        let mut filter_interp = Interpreter { ctx: ctx_for_closure.clone() };
+                                        let filter_result = filter_interp.eval_expr(&filter_expr, elem.clone(), ctx_for_closure.clone()).next();
+
+                                        match filter_result {
+                                            Some(Ok(_)) => {
+                                                // Filter matched - apply the value expression
+                                                let mut val_interp = Interpreter { ctx: ctx_for_closure.clone() };
+                                                match val_interp.eval_expr(&value_expr_clone, elem.clone(), ctx_for_closure.clone()).next() {
+                                                    Some(Ok(v)) => result.push(v),
+                                                    Some(Err(e)) => return Err(e),
+                                                    None => {
+                                                        // Value expression returned empty - delete element
+                                                    }
+                                                }
+                                            }
+                                            Some(Err(e)) => return Err(e),
+                                            None => {
+                                                // Filter didn't match - keep element unchanged
+                                                result.push(elem);
+                                            }
+                                        }
+                                    }
+                                    let new_container = Jv::from_vec(result);
+
+                                    // If base is identity, return directly
+                                    if let ExprKind::Identity = iter_base_clone.kind {
+                                        Ok(new_container)
+                                    } else {
+                                        let mut path_parts: Vec<Jv> = Vec::new();
+                                        Self::apply_assignment(input.clone(), &iter_base_clone, new_container, &mut path_parts, ctx_for_closure)
+                                    }
+                                }
+                                _ => Err(format!("Cannot iterate over {}", container.type_name())),
+                            }
+                        })()));
+                    }
+
+                    // Also handle .foo[] |= f pattern (Pipe where right is Iterator)
+                    if let ExprKind::Iterator { expr: iter_base, optional: _ } = &right.kind {
+                        // .foo[] |= f - navigate to .foo, apply update to its iterator
+                        let left_clone = left.clone();
+                        let iter_base_clone = iter_base.clone();
+                        let value_expr_clone = value_expr.clone();
+                        let ctx_for_closure = ctx_clone.clone();
+
+                        return Box::new(std::iter::once((|| {
+                            let mut left_interp = Interpreter { ctx: ctx_for_closure.clone() };
+                            let container = match left_interp.eval_expr(&left_clone, input.clone(), ctx_for_closure.clone()).next() {
+                                Some(Ok(v)) => v,
+                                Some(Err(e)) => return Err(e),
+                                None => return Err("left side produced no value".to_string()),
+                            };
+
+                            // Apply update to iterator on the container
+                            let updated_container = self.apply_update_to_iterator_sync(
+                                container,
+                                &iter_base_clone,
+                                &value_expr_clone,
+                                ctx_for_closure.clone(),
+                            )?;
+
+                            // Set the updated container back
+                            let mut path_parts: Vec<Jv> = Vec::new();
+                            Self::apply_assignment(input.clone(), &left_clone, updated_container, &mut path_parts, ctx_for_closure)
+                        })()));
+                    }
+                }
+
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
                 let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
@@ -657,6 +773,17 @@ impl Interpreter {
                 let target_expr = target.clone();
                 let value_expr = value.clone();
                 let ctx_clone = ctx.clone();
+
+                // Special handling for iterator targets like .[] += 2
+                if let ExprKind::Iterator { expr: iter_base, optional: _ } = &target_expr.kind {
+                    return self.apply_updateop_to_iterator(
+                        input,
+                        iter_base,
+                        &value_expr,
+                        op,
+                        ctx_clone,
+                    );
+                }
 
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
@@ -1872,10 +1999,119 @@ impl Interpreter {
                 }
             }
             ExprKind::Comma(left, right) => {
-                // del(a, b) - delete from both paths, left-to-right
-                // jq applies deletions left-to-right and recalculates indices after each
+                // del(a, b) - collect all paths and delete them all from the original array
+                // jq evaluates all paths on the original input, then deletes them all at once
+                // This is different from del(a) | del(b) which applies sequentially
+
+                // For arrays, we need to collect all indices to delete from the original
+                // For simplicity, handle the common case of arrays with numeric indices
+                #[derive(Clone)]
+                enum DeleteTarget {
+                    Single(i64),
+                    Slice { start: i64, end: Option<i64> }, // end=None means to the end
+                }
+
+                fn collect_indices_to_delete(
+                    expr: &Expr,
+                    input: &Jv,
+                    ctx: Rc<RefCell<Context>>,
+                    indices: &mut Vec<DeleteTarget>,
+                ) {
+                    match &expr.kind {
+                        ExprKind::Index { expr: base, index, .. } => {
+                            if let ExprKind::Identity = base.kind {
+                                let mut interp = Interpreter { ctx: ctx.clone() };
+                                if let Some(Ok(Jv::Number(n))) = interp.eval_expr(index, input.clone(), ctx.clone()).next() {
+                                    if let Some(idx) = n.as_i64() {
+                                        indices.push(DeleteTarget::Single(idx));
+                                    }
+                                }
+                            }
+                        }
+                        ExprKind::Slice { expr: base, start, end, .. } => {
+                            if let ExprKind::Identity = base.kind {
+                                let mut interp = Interpreter { ctx: ctx.clone() };
+                                let start_val = if let Some(start_expr) = start {
+                                    match interp.eval_expr(start_expr, input.clone(), ctx.clone()).next() {
+                                        Some(Ok(Jv::Number(n))) => n.as_i64().unwrap_or(0),
+                                        _ => 0,
+                                    }
+                                } else {
+                                    0
+                                };
+
+                                let end_val = if let Some(end_expr) = end {
+                                    match interp.eval_expr(end_expr, input.clone(), ctx.clone()).next() {
+                                        Some(Ok(Jv::Number(n))) => n.as_i64(),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None // None means to the end of array
+                                };
+
+                                indices.push(DeleteTarget::Slice { start: start_val, end: end_val });
+                            }
+                        }
+                        ExprKind::Comma(l, r) => {
+                            collect_indices_to_delete(l, input, ctx.clone(), indices);
+                            collect_indices_to_delete(r, input, ctx, indices);
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Check if this is a simple array deletion case
+                if let Jv::Array(arr) = &current {
+                    let len = arr.len() as i64;
+                    let mut indices = Vec::new();
+                    collect_indices_to_delete(target, &current, ctx.clone(), &mut indices);
+
+                    // Convert to absolute indices and flatten slices
+                    let mut to_delete: std::collections::HashSet<usize> = std::collections::HashSet::new();
+                    for target in indices {
+                        match target {
+                            DeleteTarget::Single(idx) => {
+                                let abs_idx = if idx < 0 { (len + idx).max(0) as usize } else { idx as usize };
+                                if abs_idx < arr.len() {
+                                    to_delete.insert(abs_idx);
+                                }
+                            }
+                            DeleteTarget::Slice { start, end } => {
+                                let start_idx = if start < 0 { (len + start).max(0) as usize } else { (start as usize).min(arr.len()) };
+                                let end_idx = match end {
+                                    Some(e) if e < 0 => (len + e).max(0) as usize,
+                                    Some(e) => (e as usize).min(arr.len()),
+                                    None => arr.len(), // None means to the end
+                                };
+                                for i in start_idx..end_idx {
+                                    to_delete.insert(i);
+                                }
+                            }
+                        }
+                    }
+
+                    // Build result array without deleted indices
+                    let mut result = Vec::new();
+                    for (i, elem) in arr.iter().enumerate() {
+                        if !to_delete.contains(&i) {
+                            result.push(elem);
+                        }
+                    }
+                    return Ok(Jv::from_vec(result));
+                }
+
+                // Fallback to sequential for non-array cases
                 let result = Self::apply_deletion(current, left, ctx.clone())?;
                 Self::apply_deletion(result, right, ctx)
+            }
+            ExprKind::FunctionCall { name, args } => {
+                // For function calls like empty, we evaluate and if it produces no results,
+                // return input unchanged. This handles del(empty) = identity
+                if name == "empty" && args.is_empty() {
+                    return Ok(current);
+                }
+                // For other function calls, we can't delete from them
+                Err(format!("Cannot delete from expression: {:?}", target.kind))
             }
             _ => Err(format!("Cannot delete from expression: {:?}", target.kind)),
         }
@@ -2308,12 +2544,14 @@ impl Interpreter {
                     let base_paths = collect_paths(base_expr, input, ctx.clone(), current_path);
                     for base_path in base_paths {
                         // Then add the index to each base path
-                        // Evaluate the index
+                        // Evaluate the index - it may produce multiple values (e.g., 0,1)
                         let mut interp = Interpreter { ctx: ctx.clone() };
-                        if let Some(Ok(idx)) = interp.eval_expr(index, input.clone(), ctx.clone()).next() {
-                            let mut new_path = base_path;
-                            new_path.push(idx);
-                            paths.push(new_path);
+                        for idx_result in interp.eval_expr(index, input.clone(), ctx.clone()) {
+                            if let Ok(idx) = idx_result {
+                                let mut new_path = base_path.clone();
+                                new_path.push(idx);
+                                paths.push(new_path);
+                            }
                         }
                     }
                 }
@@ -2362,6 +2600,28 @@ impl Interpreter {
                     // For comma, collect paths from both sides
                     paths.extend(collect_paths(left, input, ctx.clone(), current_path.clone()));
                     paths.extend(collect_paths(right, input, ctx, current_path));
+                }
+                ExprKind::FunctionCall { name, args } => {
+                    // For function calls like select(...), we need to evaluate and filter
+                    if name == "select" && args.len() == 1 {
+                        // select(cond): only returns current path if cond is true
+                        let mut interp = Interpreter { ctx: ctx.clone() };
+                        match interp.eval_expr(&args[0], input.clone(), ctx).next() {
+                            Some(Ok(Jv::Bool(true))) => {
+                                // Condition is true, keep this path
+                                paths.push(current_path);
+                            }
+                            _ => {
+                                // Condition is false or error, don't include this path
+                            }
+                        }
+                    } else {
+                        // For other function calls, evaluate and check if it produces output
+                        let mut interp = Interpreter { ctx: ctx.clone() };
+                        if interp.eval_expr(expr, input.clone(), ctx).next().is_some() {
+                            paths.push(current_path);
+                        }
+                    }
                 }
                 _ => {
                     // For other expressions, just return the current path
@@ -2527,9 +2787,9 @@ impl Interpreter {
         let mut result = Jv::Object(crate::jv::JvObject::new());
 
         for path in paths {
-            if let Some(value) = get_at_path(&input, &path) {
-                set_at_path(&mut result, &path, value);
-            }
+            // Get value at path, defaulting to null if path doesn't exist
+            let value = get_at_path(&input, &path).unwrap_or(Jv::Null);
+            set_at_path(&mut result, &path, value);
         }
 
         Box::new(std::iter::once(Ok(result)))
@@ -2611,6 +2871,174 @@ impl Interpreter {
         }
 
         Box::new(std::iter::once(Ok(Jv::string(result))))
+    }
+
+    /// Apply an update to each element via an iterator (e.g., .[] |= f)
+    /// This handles arrays and objects, applying f to each element/value
+    /// If f returns empty for an element, that element is removed
+    fn apply_update_to_iterator(
+        &mut self,
+        input: Jv,
+        iter_base: &Expr,
+        filter: &Expr,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
+        match self.apply_update_to_iterator_sync(input, iter_base, filter, ctx) {
+            Ok(v) => Box::new(std::iter::once(Ok(v))),
+            Err(e) => Box::new(std::iter::once(Err(e))),
+        }
+    }
+
+    /// Synchronous version of apply_update_to_iterator
+    fn apply_update_to_iterator_sync(
+        &mut self,
+        input: Jv,
+        iter_base: &Expr,
+        filter: &Expr,
+        ctx: Rc<RefCell<Context>>,
+    ) -> Result<Jv, String> {
+        // Get the container to iterate over
+        let container = if let ExprKind::Identity = iter_base.kind {
+            input.clone()
+        } else {
+            match self.eval_expr(iter_base, input.clone(), ctx.clone()).next() {
+                Some(Ok(v)) => v,
+                Some(Err(e)) => return Err(e),
+                None => return Err("iterator base produced no value".to_string()),
+            }
+        };
+
+        match container {
+            Jv::Array(arr) => {
+                // Apply filter to each element, keeping only non-empty results
+                let mut result = Vec::new();
+                for elem in arr.iter() {
+                    let mut filter_interp = Interpreter { ctx: ctx.clone() };
+                    let filter_result = filter_interp.eval_expr(filter, elem, ctx.clone()).next();
+                    match filter_result {
+                        Some(Ok(v)) => result.push(v),
+                        Some(Err(e)) => return Err(e),
+                        None => {
+                            // Filter returned empty, skip this element
+                        }
+                    }
+                }
+                let new_container = Jv::from_vec(result);
+
+                // If base is identity, return the new container directly
+                if let ExprKind::Identity = iter_base.kind {
+                    Ok(new_container)
+                } else {
+                    // Set the new container back at the base path
+                    let mut path_parts: Vec<Jv> = Vec::new();
+                    Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx)
+                }
+            }
+            Jv::Object(obj) => {
+                // Apply filter to each value
+                let mut result = JvObject::new();
+                for (key, val) in obj.iter() {
+                    let mut filter_interp = Interpreter { ctx: ctx.clone() };
+                    let filter_result = filter_interp.eval_expr(filter, val, ctx.clone()).next();
+                    match filter_result {
+                        Some(Ok(v)) => result.set(&key, v),
+                        Some(Err(e)) => return Err(e),
+                        None => {
+                            // Filter returned empty, skip this key
+                        }
+                    }
+                }
+                let new_container = Jv::Object(result);
+
+                // If base is identity, return the new container directly
+                if let ExprKind::Identity = iter_base.kind {
+                    Ok(new_container)
+                } else {
+                    // Set the new container back at the base path
+                    let mut path_parts: Vec<Jv> = Vec::new();
+                    Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx)
+                }
+            }
+            _ => Err(format!("Cannot iterate over {}", container.type_name())),
+        }
+    }
+
+    /// Apply an update operator (+= etc) to each element via an iterator (e.g., .[] += 2)
+    fn apply_updateop_to_iterator(
+        &mut self,
+        input: Jv,
+        iter_base: &Expr,
+        value_expr: &Expr,
+        op: BinaryOp,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
+        // Get the container to iterate over
+        let container = if let ExprKind::Identity = iter_base.kind {
+            input.clone()
+        } else {
+            match self.eval_expr(iter_base, input.clone(), ctx.clone()).next() {
+                Some(Ok(v)) => v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => return Box::new(std::iter::once(Err("iterator base produced no value".to_string()))),
+            }
+        };
+
+        // Evaluate the right-hand value once
+        let right_val = match self.eval_expr(value_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v,
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::empty()),
+        };
+
+        match container {
+            Jv::Array(arr) => {
+                // Apply operation to each element
+                let mut result = Vec::new();
+                for elem in arr.iter() {
+                    match eval_binary_op(op, &elem, &right_val) {
+                        Ok(v) => result.push(v),
+                        Err(e) => return Box::new(std::iter::once(Err(e))),
+                    }
+                }
+                let new_container = Jv::from_vec(result);
+
+                // If base is identity, return the new container directly
+                if let ExprKind::Identity = iter_base.kind {
+                    Box::new(std::iter::once(Ok(new_container)))
+                } else {
+                    // Set the new container back at the base path
+                    let mut path_parts: Vec<Jv> = Vec::new();
+                    match Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx) {
+                        Ok(v) => Box::new(std::iter::once(Ok(v))),
+                        Err(e) => Box::new(std::iter::once(Err(e))),
+                    }
+                }
+            }
+            Jv::Object(obj) => {
+                // Apply operation to each value
+                let mut result = JvObject::new();
+                for (key, val) in obj.iter() {
+                    match eval_binary_op(op, &val, &right_val) {
+                        Ok(v) => result.set(&key, v),
+                        Err(e) => return Box::new(std::iter::once(Err(e))),
+                    }
+                }
+                let new_container = Jv::Object(result);
+
+                // If base is identity, return the new container directly
+                if let ExprKind::Identity = iter_base.kind {
+                    Box::new(std::iter::once(Ok(new_container)))
+                } else {
+                    // Set the new container back at the base path
+                    let mut path_parts: Vec<Jv> = Vec::new();
+                    match Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx) {
+                        Ok(v) => Box::new(std::iter::once(Ok(v))),
+                        Err(e) => Box::new(std::iter::once(Err(e))),
+                    }
+                }
+            }
+            _ => Box::new(std::iter::once(Err(format!("Cannot iterate over {}", container.type_name())))),
+        }
     }
 
     /// Apply an assignment by traversing the target path and setting the value

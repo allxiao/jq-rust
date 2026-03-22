@@ -2,8 +2,8 @@
 
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
-**Last Updated**: 2026-03-20
-**Overall Progress**: ~72%
+**Last Updated**: 2026-03-21
+**Overall Progress**: ~75%
 
 ## Session Log
 
@@ -195,6 +195,32 @@
   - Correctly handles infinity: `infinite % 1` returns 0
   - Returns NaN when either operand is NaN
 - [x] Integration tests: 338/527 jq.test cases passing (64%)
+
+### Session 13 (2026-03-21)
+- [x] Fixed `.[] |= select(...)` iterator updates:
+  - Added `apply_update_to_iterator` to handle `.[] |= f` patterns
+  - `.[] |= select(. % 2 == 0)` now correctly filters array elements
+  - Also handles `(.[] | select(...)) |= f` pattern
+- [x] Fixed `.[] += 2` operator updates:
+  - Added `apply_updateop_to_iterator` for update operators on iterators
+  - `.[] += 2, .[] *= 2` etc now work correctly
+- [x] Fixed `path(.foo[0,1])` to handle generators in indices:
+  - Now correctly returns multiple paths for comma-separated indices
+- [x] Fixed `path(.[] | select(.>3))` to handle select() in paths:
+  - select() now properly filters paths based on condition
+- [x] Fixed `pick(.a.b.c)` on null to create structure with null values
+- [x] Fixed `del(.[1], .[-6], .[2], .[-3:9])` array deletion:
+  - Array deletions now evaluate all indices on original array
+  - Indices are collected and deleted in one pass
+  - Fixed slice handling for `.[-2:]` (no end value)
+- [x] Fixed conditionals with generators:
+  - `[if 1,null,2 then 3 else 4 end]` now produces `[3,4,3]`
+  - `[if false then 3 end]` now produces `[null]` not `[]`
+- [x] Fixed `$__loc__` to use `<top-level>` filename like jq
+- [x] Fixed `delpaths(0)` error message to match jq
+- [x] Added `del(empty)` support (returns input unchanged)
+- [x] All 95 unit tests passing
+- [x] Integration tests: 349/527 jq.test cases passing (66%)
 
 ## Phase Progress
 

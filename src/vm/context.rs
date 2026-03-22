@@ -875,7 +875,7 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
 fn builtin_delpaths(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let paths = match args.first() {
         Some(Jv::Array(p)) => p,
-        _ => return err("delpaths requires array of paths".to_string()),
+        _ => return err("Paths must be specified as an array".to_string()),
     };
 
     // Collect all paths, sort by length (longest first) to delete leaf paths first
