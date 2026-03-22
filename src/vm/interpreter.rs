@@ -45,9 +45,10 @@ fn get_value_at_path(input: &Jv, path: &[Jv]) -> Jv {
 }
 
 /// Set a value at a given path in a JSON structure
-fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Jv {
+/// Returns an error if the path doesn't match the data structure
+fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Result<Jv, String> {
     if path.is_empty() {
-        return value;
+        return Ok(value);
     }
 
     let first = &path[0];
@@ -57,9 +58,9 @@ fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Jv {
         (Jv::Object(obj), Jv::String(key)) => {
             let mut new_obj = obj.clone();
             let child = obj.get(key.as_str()).unwrap_or(Jv::Null);
-            let new_child = set_value_at_path(child, rest, value);
+            let new_child = set_value_at_path(child, rest, value)?;
             new_obj.set(key.as_str(), new_child);
-            Jv::Object(new_obj)
+            Ok(Jv::Object(new_obj))
         }
         (Jv::Array(arr), Jv::Number(n)) => {
             if let Some(idx) = n.as_i64() {
@@ -80,19 +81,19 @@ fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Jv {
                 }
 
                 let child = new_arr.get(actual_idx as i64).unwrap_or(Jv::Null);
-                let new_child = set_value_at_path(child, rest, value);
+                let new_child = set_value_at_path(child, rest, value)?;
                 new_arr.set(actual_idx as i64, new_child).ok();
-                Jv::Array(new_arr)
+                Ok(Jv::Array(new_arr))
             } else {
-                input
+                Ok(input)
             }
         }
         (Jv::Null, Jv::String(key)) => {
             // Auto-vivification: create object
             let mut new_obj = JvObject::new();
-            let new_child = set_value_at_path(Jv::Null, rest, value);
+            let new_child = set_value_at_path(Jv::Null, rest, value)?;
             new_obj.set(key.as_str(), new_child);
-            Jv::Object(new_obj)
+            Ok(Jv::Object(new_obj))
         }
         (Jv::Null, Jv::Number(n)) => {
             // Auto-vivification: create array
@@ -102,17 +103,42 @@ fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Jv {
                     while new_arr.len() <= idx as usize {
                         new_arr.push(Jv::Null);
                     }
-                    let new_child = set_value_at_path(Jv::Null, rest, value);
+                    let new_child = set_value_at_path(Jv::Null, rest, value)?;
                     new_arr.set(idx, new_child).ok();
-                    Jv::Array(new_arr)
+                    Ok(Jv::Array(new_arr))
                 } else {
-                    input
+                    Ok(input)
                 }
             } else {
-                input
+                Ok(input)
             }
         }
-        _ => input,
+        // Error cases: type mismatch between path component and data structure
+        (Jv::Number(_), Jv::Number(n)) => {
+            Err(format!("Cannot index number with number ({})", n))
+        }
+        (Jv::Number(_), Jv::String(s)) => {
+            Err(format!("Cannot index number with string (\"{}\")", s.as_str()))
+        }
+        (Jv::Object(_), Jv::Number(n)) => {
+            Err(format!("Cannot index object with number ({})", n))
+        }
+        (Jv::Array(_), Jv::String(s)) => {
+            Err(format!("Cannot index array with string (\"{}\")", s.as_str()))
+        }
+        (Jv::String(_), Jv::Number(n)) => {
+            Err(format!("Cannot index string with number ({})", n))
+        }
+        (Jv::String(_), Jv::String(s)) => {
+            Err(format!("Cannot index string with string (\"{}\")", s.as_str()))
+        }
+        (Jv::Bool(_), Jv::Number(n)) => {
+            Err(format!("Cannot index boolean with number ({})", n))
+        }
+        (Jv::Bool(_), Jv::String(s)) => {
+            Err(format!("Cannot index boolean with string (\"{}\")", s.as_str()))
+        }
+        _ => Ok(input),
     }
 }
 
@@ -4200,7 +4226,10 @@ impl Interpreter {
             };
 
             // Set the new value at this path
-            result = set_value_at_path(result, &path, new_value);
+            result = match set_value_at_path(result, &path, new_value) {
+                Ok(v) => v,
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            };
         }
 
         Box::new(std::iter::once(Ok(result)))
