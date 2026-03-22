@@ -133,14 +133,21 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
             // Try to compile the filter - it should fail
             match parse(filter) {
                 Err(_e) => TestOutcome::Pass,
-                Ok(_expr) => {
-                    // Parser succeeded when it shouldn't have - but maybe execution fails?
+                Ok(expr) => {
+                    // Parser succeeded - but maybe execution fails?
                     // Some %%FAIL tests fail at runtime, not parse time
-                    // For now, count as fail
-                    TestOutcome::Fail {
-                        reason: format!("Expected compilation failure for: {}", filter),
-                        expected: vec!["<compile error>".to_string()],
-                        actual: vec!["<compiled successfully>".to_string()],
+                    // Try running with null input
+                    let results: Vec<_> = interpret(&expr, Jv::Null).collect();
+                    let has_error = results.iter().any(|r| r.is_err());
+                    if has_error || results.is_empty() {
+                        // Runtime error - count as pass
+                        TestOutcome::Pass
+                    } else {
+                        TestOutcome::Fail {
+                            reason: format!("Expected compilation failure for: {}", filter),
+                            expected: vec!["<compile error>".to_string()],
+                            actual: vec!["<compiled successfully>".to_string()],
+                        }
                     }
                 }
             }

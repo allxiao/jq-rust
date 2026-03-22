@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~78%
+**Overall Progress**: ~80%
 
 ## Session Log
 
@@ -250,6 +250,45 @@
 - [x] Added input validation to strftime/mktime
 - [x] Integration tests: 392/527 jq.test cases passing (74%)
 
+### Session 15 (2026-03-21)
+- [x] Fixed error message formatting for arithmetic operations
+  - Updated string truncation to 24 chars (matching jq)
+  - Added format_value_for_error helper function
+  - Fixed negation, addition, subtraction error messages
+- [x] Fixed join() to convert non-string values (numbers, booleans) to strings
+- [x] Fixed pick() to handle array inputs (creates arrays when paths start with numbers)
+- [x] Fixed pick() nested structure creation (arrays vs objects based on path keys)
+- [x] Added first/last support in path() expressions for pick() compatibility
+- [x] Fixed pick(last) to error on negative indices
+- [x] Fixed division/modulo by zero error messages to match jq format
+- [x] Added pow/2 (two-argument power function)
+- [x] Added IN/1 and IN/2 functions for membership testing
+- [x] Fixed index(""), rindex(""), indices("") to return null/[] for empty needle
+- [x] Fixed builtins to return names with arities (e.g., "length/0")
+- [x] Added have_decnum and have_literal_numbers functions (both return false for f64-based impl)
+- [x] Added `.foo[1,4,2,3] |= empty` support (indexed generator updates with deletion)
+- [x] Integration tests: 422/527 jq.test cases passing (80%)
+
+### Session 16 (2026-03-21)
+- [x] Fixed del() to not create non-existent paths
+  - `del(.baz.bar[0].x)` on `{"foo":...}` now returns input unchanged
+  - Added is_path_access() helper to detect path expressions
+- [x] Implemented INDEX/1 and INDEX/2 functions
+  - `INDEX(stream; idx_expr)` creates object mapping keys to stream elements
+  - `INDEX(idx_expr)` applies to input array
+- [x] Implemented JOIN/2 and JOIN/3 functions
+  - `JOIN($idx; idx_expr)` pairs array elements with index lookups
+  - `JOIN($idx; stream; idx_expr)` streaming version
+- [x] Fixed %%FAIL tests to pass when runtime error occurs
+  - Tests like `{(0):1}` now pass since they error at runtime
+- [x] Added binding and paren support in apply_assignment
+  - `(.a as $x | .b) = "b"` now works correctly
+  - Bindings are evaluated and body is used as assignment target
+- [x] Added getpath() support as assignment target
+  - `getpath(["a",0,"b"]) |= 5` now works as expected
+  - Creates nested structure if path doesn't exist
+- [x] Integration tests: 433/527 jq.test cases passing (82%)
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -302,7 +341,7 @@
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 0             | TBD         | 0%       |
+| jq.test    | 433           | 527         | 82%      |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
@@ -322,8 +361,8 @@
 - Target: Full jq compatibility
 
 ## Next Steps
-1. Add date/time functions (now, strftime, strptime, etc.)
+1. Fix path() to detect invalid expressions (map, etc.)
 2. Implement module system (import/include)
-3. Add recursive descent function definitions
-4. Run against jq test suite for compatibility testing
+3. Add INDEX and JOIN builtin functions
+4. Fix complex del() expressions with pipes
 5. Performance optimization

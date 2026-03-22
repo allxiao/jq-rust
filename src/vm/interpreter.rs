@@ -392,7 +392,7 @@ impl Interpreter {
                     match result {
                         Err(e) => Err(e),
                         Ok(Jv::Number(n)) => Ok(Jv::Number(n.neg())),
-                        Ok(v) => Err(format!("{} cannot be negated", v.type_name())),
+                        Ok(v) => Err(format!("{} cannot be negated", format_value_for_error(&v))),
                     }
                 }))
             }
@@ -737,6 +737,21 @@ impl Interpreter {
                     }
                 }
 
+                // Special handling for index expressions with generators like .foo[1,4,2,3] |= empty
+                // When the value expression returns empty, we delete those indices
+                if let ExprKind::Index { expr: base_expr, index: idx_expr, optional: _ } = &effective_target.kind {
+                    // Check if index expression might be a generator (contains Comma)
+                    if Self::contains_comma(&idx_expr.kind) {
+                        return self.apply_update_to_indexed_generator(
+                            input,
+                            base_expr,
+                            idx_expr,
+                            &value_expr,
+                            ctx_clone,
+                        );
+                    }
+                }
+
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
                 let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
@@ -978,6 +993,8 @@ impl Interpreter {
             ("all", 0) => return self.eval_all_simple(input),
             ("all", 1) => return self.eval_all_filter(&args[0], input, ctx),
             ("all", 2) => return self.eval_all_gen_filter(&args[0], &args[1], input, ctx),
+            ("IN", 1) => return self.eval_in_stream(&args[0], input, ctx),
+            ("IN", 2) => return self.eval_in_stream2(&args[0], &args[1], input, ctx),
             ("del", 1) => return self.eval_del(&args[0], input, ctx),
             ("getpath", 1) => return self.eval_getpath(&args[0], input, ctx),
             ("isempty", 1) => return self.eval_isempty(&args[0], input, ctx),
@@ -997,6 +1014,10 @@ impl Interpreter {
             ("pick", 1) => return self.eval_pick(&args[0], input, ctx),
             ("nth", 2) => return self.eval_nth(&args[0], &args[1], input, ctx),
             ("last", 1) => return self.eval_last_expr(&args[0], input, ctx),
+            ("INDEX", 1) => return self.eval_index1(&args[0], input, ctx),
+            ("INDEX", 2) => return self.eval_index2(&args[0], &args[1], input, ctx),
+            ("JOIN", 2) => return self.eval_join2(&args[0], &args[1], input, ctx),
+            ("JOIN", 3) => return self.eval_join3(&args[0], &args[1], &args[2], input, ctx),
             ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
                 // These are handled as regular builtins
             }
@@ -1919,6 +1940,211 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(Jv::Bool(true))))
     }
 
+    fn eval_in_stream(&mut self, stream: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // IN(s) = any(s == .; .)
+        // Check if input equals any value produced by the stream
+        let mut inner = Interpreter { ctx: ctx.clone() };
+        for result in inner.eval_expr(stream, Jv::Null, ctx.clone()) {
+            match result {
+                Ok(item) => {
+                    if item == input {
+                        return Box::new(std::iter::once(Ok(Jv::Bool(true))));
+                    }
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            }
+        }
+        Box::new(std::iter::once(Ok(Jv::Bool(false))))
+    }
+
+    fn eval_in_stream2(&mut self, src: &Expr, stream: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // IN(src; s) = any(src == s; .)
+        // Check if any value from src equals any value from stream
+        let mut inner_src = Interpreter { ctx: ctx.clone() };
+        let src_values: Vec<_> = inner_src.eval_expr(src, input.clone(), ctx.clone())
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut inner_s = Interpreter { ctx: ctx.clone() };
+        let stream_values: Vec<_> = inner_s.eval_expr(stream, Jv::Null, ctx.clone())
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for s_val in src_values {
+            if stream_values.iter().any(|v| *v == s_val) {
+                return Box::new(std::iter::once(Ok(Jv::Bool(true))));
+            }
+        }
+        Box::new(std::iter::once(Ok(Jv::Bool(false))))
+    }
+
+    // INDEX(stream; idx_expr) - creates object mapping idx_expr to stream elements
+    // def INDEX(stream; idx_expr): reduce stream as $row ({}; .[$row|idx_expr|tostring] = $row)
+    fn eval_index2(&mut self, stream: &Expr, idx_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        use crate::jv::JvObject;
+
+        let mut result = JvObject::new();
+        let mut inner = Interpreter { ctx: ctx.clone() };
+
+        for row_result in inner.eval_expr(stream, input.clone(), ctx.clone()) {
+            match row_result {
+                Ok(row) => {
+                    // Evaluate idx_expr on row
+                    let mut idx_interp = Interpreter { ctx: ctx.clone() };
+                    if let Some(idx_result) = idx_interp.eval_expr(idx_expr, row.clone(), ctx.clone()).next() {
+                        match idx_result {
+                            Ok(idx_val) => {
+                                // Convert to string for object key
+                                let key = match &idx_val {
+                                    Jv::String(s) => s.as_str().to_string(),
+                                    Jv::Number(n) => format!("{}", n),
+                                    _ => format!("{}", idx_val),
+                                };
+                                result.set(&key, row);
+                            }
+                            Err(e) => return Box::new(std::iter::once(Err(e))),
+                        }
+                    }
+                }
+                Err(e) => return Box::new(std::iter::once(Err(e))),
+            }
+        }
+
+        Box::new(std::iter::once(Ok(Jv::Object(result))))
+    }
+
+    // INDEX(idx_expr) - same as INDEX(.[]; idx_expr)
+    fn eval_index1(&mut self, idx_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        use crate::jv::JvObject;
+
+        // input should be an array, iterate over it
+        let arr = match &input {
+            Jv::Array(a) => a,
+            _ => return Box::new(std::iter::once(Err("INDEX requires array input".to_string()))),
+        };
+
+        let mut result = JvObject::new();
+
+        for row in arr.iter() {
+            // Evaluate idx_expr on row
+            let mut idx_interp = Interpreter { ctx: ctx.clone() };
+            if let Some(idx_result) = idx_interp.eval_expr(idx_expr, row.clone(), ctx.clone()).next() {
+                match idx_result {
+                    Ok(idx_val) => {
+                        // Convert to string for object key
+                        let key = match &idx_val {
+                            Jv::String(s) => s.as_str().to_string(),
+                            Jv::Number(n) => format!("{}", n),
+                            _ => format!("{}", idx_val),
+                        };
+                        result.set(&key, row);
+                    }
+                    Err(e) => return Box::new(std::iter::once(Err(e))),
+                }
+            }
+        }
+
+        Box::new(std::iter::once(Ok(Jv::Object(result))))
+    }
+
+    // JOIN($idx; idx_expr) - [.[] | [., $idx[idx_expr]]]
+    fn eval_join2(&mut self, idx_expr: &Expr, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // idx_expr is the index object ($idx in jq definition)
+        // key_expr is the expression to compute the key
+
+        // First evaluate idx_expr to get the index object
+        let mut idx_interp = Interpreter { ctx: ctx.clone() };
+        let idx_obj = match idx_interp.eval_expr(idx_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v,
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::once(Err("INDEX object evaluation produced no value".to_string()))),
+        };
+
+        // Input should be an array
+        let arr = match &input {
+            Jv::Array(a) => a,
+            _ => return Box::new(std::iter::once(Err("JOIN requires array input".to_string()))),
+        };
+
+        let mut results = Vec::new();
+
+        for item in arr.iter() {
+            // Compute the key for this item
+            let mut key_interp = Interpreter { ctx: ctx.clone() };
+            let key_val = match key_interp.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
+                Some(Ok(v)) => v,
+                Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                None => continue,
+            };
+
+            // Convert key to string
+            let key = match &key_val {
+                Jv::String(s) => s.as_str().to_string(),
+                Jv::Number(n) => format!("{}", n),
+                _ => format!("{}", key_val),
+            };
+
+            // Look up in the index object
+            let lookup = match &idx_obj {
+                Jv::Object(obj) => obj.get(&key).unwrap_or(Jv::Null),
+                _ => Jv::Null,
+            };
+
+            // Create [item, lookup] pair
+            results.push(Jv::from_vec(vec![item.clone(), lookup]));
+        }
+
+        Box::new(std::iter::once(Ok(Jv::from_vec(results))))
+    }
+
+    // JOIN($idx; stream; idx_expr) - stream | [., $idx[idx_expr]]
+    fn eval_join3(&mut self, idx_expr: &Expr, stream: &Expr, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // First evaluate idx_expr to get the index object
+        let mut idx_interp = Interpreter { ctx: ctx.clone() };
+        let idx_obj = match idx_interp.eval_expr(idx_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v,
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::once(Err("INDEX object evaluation produced no value".to_string()))),
+        };
+
+        let idx_obj_clone = idx_obj;
+        let key_expr = key_expr.clone();
+        let ctx_clone = ctx.clone();
+
+        // Evaluate stream and for each item, create [item, $idx[key]]
+        let mut stream_interp = Interpreter { ctx: ctx.clone() };
+
+        Box::new(stream_interp.eval_expr(stream, input, ctx).map(move |item_result| {
+            match item_result {
+                Ok(item) => {
+                    // Compute the key for this item
+                    let mut key_interp = Interpreter { ctx: ctx_clone.clone() };
+                    let key_val = match key_interp.eval_expr(&key_expr, item.clone(), ctx_clone.clone()).next() {
+                        Some(Ok(v)) => v,
+                        Some(Err(e)) => return Err(e),
+                        None => return Ok(Jv::from_vec(vec![item, Jv::Null])),
+                    };
+
+                    // Convert key to string
+                    let key = match &key_val {
+                        Jv::String(s) => s.as_str().to_string(),
+                        Jv::Number(n) => format!("{}", n),
+                        _ => format!("{}", key_val),
+                    };
+
+                    // Look up in the index object
+                    let lookup = match &idx_obj_clone {
+                        Jv::Object(obj) => obj.get(&key).unwrap_or(Jv::Null),
+                        _ => Jv::Null,
+                    };
+
+                    Ok(Jv::from_vec(vec![item, lookup]))
+                }
+                Err(e) => Err(e),
+            }
+        }))
+    }
+
     fn eval_del(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         // del(path) deletes the element at path
         let result = Self::apply_deletion(input, path_expr, ctx);
@@ -1992,6 +2218,16 @@ impl Interpreter {
                             Some(Err(e)) => return Err(e),
                             None => return Ok(current),
                         };
+
+                        // If base path doesn't exist (returns null for object/array access),
+                        // there's nothing to delete, so return input unchanged
+                        if base_val == Jv::Null {
+                            // Check if the base expression is accessing a non-existent path
+                            // by checking if it's a field/index access that returned null
+                            if Self::is_path_access(&base.kind) {
+                                return Ok(current);
+                            }
+                        }
 
                         let inner_target = Expr::new(
                             ExprKind::Index {
@@ -2701,6 +2937,16 @@ impl Interpreter {
                                 // Condition is false or error, don't include this path
                             }
                         }
+                    } else if name == "first" && args.is_empty() {
+                        // first is equivalent to .[0]
+                        let mut new_path = current_path;
+                        new_path.push(Jv::from_i64(0));
+                        paths.push(new_path);
+                    } else if name == "last" && args.is_empty() {
+                        // last is equivalent to .[-1]
+                        let mut new_path = current_path;
+                        new_path.push(Jv::from_i64(-1));
+                        paths.push(new_path);
                     } else {
                         // For other function calls, evaluate and check if it produces output
                         let mut interp = Interpreter { ctx: ctx.clone() };
@@ -2819,6 +3065,15 @@ impl Interpreter {
             let key = &path[0];
             let rest = &path[1..];
 
+            // Helper to determine what container type to create for a path
+            fn make_container_for_path(path: &[Jv]) -> Jv {
+                if path.first().map(|k| matches!(k, Jv::Number(_))).unwrap_or(false) {
+                    Jv::Array(crate::jv::JvArray::new())
+                } else {
+                    Jv::Object(crate::jv::JvObject::new())
+                }
+            }
+
             match key {
                 Jv::String(k) => {
                     let k = k.as_str();
@@ -2826,7 +3081,7 @@ impl Interpreter {
                         if rest.is_empty() {
                             obj.set(k, value);
                         } else {
-                            let existing = obj.get(k).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
+                            let existing = obj.get(k).unwrap_or_else(|| make_container_for_path(rest));
                             let mut nested = existing;
                             set_at_path(&mut nested, rest, value);
                             obj.set(k, nested);
@@ -2839,7 +3094,7 @@ impl Interpreter {
                         if rest.is_empty() {
                             let _ = arr.set(idx, value);
                         } else {
-                            let existing = arr.get(idx).unwrap_or(Jv::Object(crate::jv::JvObject::new()));
+                            let existing = arr.get(idx).unwrap_or_else(|| make_container_for_path(rest));
                             let mut nested = existing;
                             set_at_path(&mut nested, rest, value);
                             let _ = arr.set(idx, nested);
@@ -2869,10 +3124,28 @@ impl Interpreter {
             }
         }
 
-        // Start with an empty object (pick typically returns an object)
-        let mut result = Jv::Object(crate::jv::JvObject::new());
+        // Determine the result type based on the input type and the paths
+        // If all paths start with a numeric index, we need an array; otherwise object
+        let mut result = if paths.iter().all(|p| p.first().map(|k| matches!(k, Jv::Number(_))).unwrap_or(false)) {
+            match &input {
+                Jv::Array(_) => Jv::Array(crate::jv::JvArray::new()),
+                _ => Jv::Object(crate::jv::JvObject::new()),
+            }
+        } else {
+            Jv::Object(crate::jv::JvObject::new())
+        };
 
         for path in paths {
+            // Check for negative indices which are not supported in pick
+            for key in &path {
+                if let Jv::Number(n) = key {
+                    if let Some(idx) = n.as_i64() {
+                        if idx < 0 {
+                            return Box::new(std::iter::once(Err("Out of bounds negative array index".to_string())));
+                        }
+                    }
+                }
+            }
             // Get value at path, defaulting to null if path doesn't exist
             let value = get_at_path(&input, &path).unwrap_or(Jv::Null);
             set_at_path(&mut result, &path, value);
@@ -3046,6 +3319,99 @@ impl Interpreter {
                 }
             }
             _ => Err(format!("Cannot iterate over {}", container.type_name())),
+        }
+    }
+
+    /// Check if an expression kind contains a Comma (generator)
+    fn contains_comma(kind: &ExprKind) -> bool {
+        match kind {
+            ExprKind::Comma(_, _) => true,
+            ExprKind::Paren(inner) => Self::contains_comma(&inner.kind),
+            _ => false,
+        }
+    }
+
+    /// Check if an expression is a path access (field or index)
+    /// Used to determine if a null result means "path doesn't exist"
+    fn is_path_access(kind: &ExprKind) -> bool {
+        match kind {
+            ExprKind::Field(_) => true,
+            ExprKind::Index { .. } => true,
+            ExprKind::Slice { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Apply update to indexed generator like .foo[1,4,2,3] |= empty
+    fn apply_update_to_indexed_generator(
+        &mut self,
+        input: Jv,
+        base_expr: &Expr,
+        idx_expr: &Expr,
+        value_expr: &Expr,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
+        // Get the base container
+        let container = match self.eval_expr(base_expr, input.clone(), ctx.clone()).next() {
+            Some(Ok(v)) => v,
+            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+            None => return Box::new(std::iter::once(Err("base expression produced no value".to_string()))),
+        };
+
+        // Evaluate all indices from the generator
+        let indices: Vec<i64> = self.eval_expr(idx_expr, input.clone(), ctx.clone())
+            .filter_map(|r| r.ok())
+            .filter_map(|v| v.as_i64())
+            .collect();
+
+        match container {
+            Jv::Array(arr) => {
+                let len = arr.len() as i64;
+                let mut result = Vec::with_capacity(arr.len());
+                let mut indices_to_delete = std::collections::HashSet::new();
+
+                // Normalize indices and check which ones should be deleted
+                for idx in indices {
+                    let normalized = if idx < 0 { len + idx } else { idx };
+                    if normalized >= 0 && normalized < len {
+                        let normalized_usize = normalized as usize;
+                        let elem = arr.get(idx).unwrap_or(Jv::Null);
+
+                        // Apply the value expression to the element
+                        let mut val_interp = Interpreter { ctx: ctx.clone() };
+                        let update_result = val_interp.eval_expr(value_expr, elem, ctx.clone()).next();
+
+                        match update_result {
+                            Some(Ok(_)) => {
+                                // Value expression returned something - keep with update
+                                // But for now, we're only handling deletion (empty)
+                            }
+                            Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
+                            None => {
+                                // Value expression returned empty - mark for deletion
+                                indices_to_delete.insert(normalized_usize);
+                            }
+                        }
+                    }
+                }
+
+                // Build result array, skipping deleted indices
+                for (i, elem) in arr.iter().enumerate() {
+                    if !indices_to_delete.contains(&i) {
+                        result.push(elem);
+                    }
+                }
+
+                let new_container = Jv::from_vec(result);
+
+                // Set the result back at the base path
+                let mut path_parts: Vec<Jv> = Vec::new();
+                match Self::apply_assignment(input, base_expr, new_container, &mut path_parts, ctx) {
+                    Ok(v) => Box::new(std::iter::once(Ok(v))),
+                    Err(e) => Box::new(std::iter::once(Err(e))),
+                }
+            }
+            _ => Box::new(std::iter::once(Err(format!("Cannot index {} with generators", container.type_name())))),
         }
     }
 
@@ -3377,6 +3743,94 @@ impl Interpreter {
                 let modified = Self::apply_assignment(left_val, right, value, _path, ctx.clone())?;
                 Self::apply_assignment(current, left, modified, _path, ctx)
             }
+            ExprKind::Paren(inner) => {
+                // Unwrap parentheses
+                Self::apply_assignment(current, inner, value, _path, ctx)
+            }
+            ExprKind::Binding { expr: bind_expr, pattern, body } => {
+                // For (.a as $x | .b) = value
+                // 1. Evaluate bind_expr to get binding value
+                // 2. Create context with binding
+                // 3. Apply assignment to body
+                let mut bind_interp = Interpreter { ctx: ctx.clone() };
+                let bind_val = match bind_interp.eval_expr(bind_expr, current.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Err(e),
+                    None => return Err("binding expression produced no value".to_string()),
+                };
+
+                // Create child context with binding
+                let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
+                Self::bind_pattern(pattern, &bind_val, &child_ctx)?;
+
+                // Apply assignment to body in child context
+                Self::apply_assignment(current, body, value, _path, child_ctx)
+            }
+            ExprKind::FunctionCall { name, args } if name == "getpath" && args.len() == 1 => {
+                // getpath(path) = value is equivalent to setpath(path; value)
+                let mut interp = Interpreter { ctx: ctx.clone() };
+                let path_val = match interp.eval_expr(&args[0], current.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Err(e),
+                    None => return Err("getpath argument produced no value".to_string()),
+                };
+
+                // path_val should be an array of path components
+                let path_arr = match &path_val {
+                    Jv::Array(arr) => arr,
+                    _ => return Err("Path must be specified as an array".to_string()),
+                };
+
+                // Build the result by setting the path
+                let mut result = current;
+                let components: Vec<Jv> = path_arr.iter().collect();
+
+                fn set_path(current: Jv, path: &[Jv], value: Jv) -> Result<Jv, String> {
+                    use crate::jv::{JvObject, JvArray};
+
+                    if path.is_empty() {
+                        return Ok(value);
+                    }
+
+                    let key = &path[0];
+                    let rest = &path[1..];
+
+                    match key {
+                        Jv::String(s) => {
+                            // Object key
+                            let mut obj = match current {
+                                Jv::Object(o) => o,
+                                Jv::Null => JvObject::new(),
+                                _ => return Err(format!("Cannot index {} with string \"{}\"", current.type_name(), s.as_str())),
+                            };
+                            let child = obj.get(s.as_str()).unwrap_or(Jv::Null);
+                            let new_child = set_path(child, rest, value)?;
+                            obj.set(s.as_str(), new_child);
+                            Ok(Jv::Object(obj))
+                        }
+                        Jv::Number(n) => {
+                            // Array index
+                            if let Some(idx) = n.as_i64() {
+                                let mut arr = match current {
+                                    Jv::Array(a) => a,
+                                    Jv::Null => JvArray::new(),
+                                    _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
+                                };
+                                let child = arr.get(idx).unwrap_or(Jv::Null);
+                                let new_child = set_path(child, rest, value)?;
+                                arr.set(idx, new_child).map_err(|e| e)?;
+                                Ok(Jv::Array(arr))
+                            } else {
+                                Err("Array index must be integer".to_string())
+                            }
+                        }
+                        _ => Err(format!("Cannot index with {}", key.type_name())),
+                    }
+                }
+
+                result = set_path(result, &components, value)?;
+                Ok(result)
+            }
             _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
         }
     }
@@ -3466,7 +3920,38 @@ fn add_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
         (Jv::String(s1), Jv::String(s2)) => Ok(Jv::String(s1.concat(s2))),
         (Jv::Array(a1), Jv::Array(a2)) => Ok(Jv::Array(a1.concat(a2))),
         (Jv::Object(o1), Jv::Object(o2)) => Ok(Jv::Object(o1.merge(o2))),
-        _ => Err(format!("{} and {} cannot be added", a.type_name(), b.type_name())),
+        _ => Err(format!("{} and {} cannot be added", format_value_for_error(a), format_value_for_error(b))),
+    }
+}
+
+/// Format a value for error messages, truncating long strings
+fn format_value_for_error(v: &Jv) -> String {
+    match v {
+        Jv::String(s) => {
+            let str_val = s.as_str();
+            if str_val.len() > 24 {
+                // jq truncates strings to 24 chars (no closing quote) + "..."
+                format!("string (\"{}...\")", &str_val[..24].replace('"', "\\\""))
+            } else {
+                format!("string (\"{}\")", str_val.replace('"', "\\\""))
+            }
+        }
+        Jv::Number(n) => {
+            let n_str = format!("{}", n);
+            if n_str.len() > 26 {
+                format!("number ({}...)", &n_str[..26])
+            } else {
+                format!("number ({})", n_str)
+            }
+        }
+        Jv::Object(obj) => {
+            // Format object with nested truncation like jq
+            use crate::jv::{JvPrintOptions, print_jv_with_options};
+            let opts = JvPrintOptions::compact();
+            let formatted = print_jv_with_options(v, &opts);
+            format!("object ({})", formatted)
+        }
+        _ => v.type_name().to_string(),
     }
 }
 
@@ -3478,7 +3963,7 @@ fn sub_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
             let result: Vec<_> = arr.iter().filter(|x| !sub_items.contains(x)).collect();
             Ok(Jv::from_vec(result))
         }
-        _ => Err(format!("{} and {} cannot be subtracted", a.type_name(), b.type_name())),
+        _ => Err(format!("{} and {} cannot be subtracted", format_value_for_error(a), format_value_for_error(b))),
     }
 }
 
@@ -3520,7 +4005,8 @@ fn div_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => {
             if n2.as_f64() == 0.0 {
-                Err("division by zero".to_string())
+                Err(format!("{} and {} cannot be divided because the divisor is zero",
+                    format_value_for_error(a), format_value_for_error(b)))
             } else {
                 Ok(Jv::Number(n1.div(n2)))
             }
@@ -3537,7 +4023,8 @@ fn mod_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => {
             if n2.as_f64() == 0.0 {
-                Err("modulo by zero".to_string())
+                Err(format!("{} and {} cannot be divided (remainder) because the divisor is zero",
+                    format_value_for_error(a), format_value_for_error(b)))
             } else {
                 Ok(Jv::Number(n1.modulo(n2)))
             }
