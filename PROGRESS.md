@@ -426,8 +426,9 @@
 - [x] Added `combinations/1` for n-ary combinations
 - [x] Added `recurse/2` for conditional recursion (recurse(f; cond))
 - [x] Fixed `index()` and `rindex()` to find array subsequences
+- [x] Fixed `unique_by` to sort by key value (matching jq behavior)
 - [x] Updated test results:
-  - man.test: 222/230 (96.5%)
+  - man.test: 223/230 (96.9%)
   - uri.test: 20/20 (100%)
 
 ## Known Limitations
@@ -495,7 +496,7 @@ The remaining test failures are due to:
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 505           | 527         | 95.8%    |
-| man.test   | 222           | 230         | 96.5%    |
+| man.test   | 223           | 230         | 96.9%    |
 | optional.test| 2           | 2           | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | base64.test| 9             | 10          | 90%      |
