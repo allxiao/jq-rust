@@ -446,9 +446,13 @@
   - Supports `[pattern]` or `[pattern, flags]` syntax
   - Global matching with 'g' flag
   - No-empty-matches with 'n' flag
+- [x] Added comma expression support in assignment targets
+  - `(.a, .b) = value` assigns value to both paths
+  - `(.a, .b) |= expr` applies update once and uses same value for both paths
 - [x] Updated test results:
   - onig.test: 29/47 (61.7%) - up from 38.3%
   - manonig.test: 16/19 (84.2%) - up from 47.4%
+  - man.test: 225/230 (97.8%) - up from 96.9%
 
 ## Known Limitations
 
@@ -515,7 +519,7 @@ The remaining test failures are due to:
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
 | jq.test    | 505           | 527         | 95.8%    |
-| man.test   | 223           | 230         | 97.0%    |
+| man.test   | 225           | 230         | 97.8%    |
 | optional.test| 2           | 2           | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | base64.test| 9             | 10          | 90%      |
