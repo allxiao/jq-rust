@@ -3770,30 +3770,48 @@ impl Interpreter {
                     }
                 }
                 ExprKind::Iterator { expr: base_expr, .. } => {
-                    // First get the base value for the iterator
-                    let base_value = if let ExprKind::Identity = base_expr.kind {
-                        input.clone()
-                    } else {
-                        // For complex base expressions, we'd need to navigate
-                        input.clone()
-                    };
-                    // For .[], enumerate all paths
-                    match &base_value {
-                        Jv::Array(arr) => {
-                            for i in 0..arr.len() {
-                                let mut new_path = current_path.clone();
-                                new_path.push(Jv::from_i64(i as i64));
-                                paths.push(new_path);
+                    // First collect paths from base expression
+                    let base_paths = collect_paths(base_expr, input, ctx.clone(), current_path.clone());
+
+                    for base_path in base_paths {
+                        // Check if this is an invalid path marker
+                        if base_path.len() >= 2 {
+                            if let Some(Jv::String(marker)) = base_path.get(base_path.len() - 2) {
+                                if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                                    // Found invalid path marker - create error for iterator attempt
+                                    let result_value = base_path.last().unwrap();
+                                    use crate::jv::print_jv;
+                                    let formatted = print_jv(result_value);
+                                    let error_msg = format!("Invalid path expression near attempt to iterate through {}", formatted);
+
+                                    let mut error_path = Vec::new();
+                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                                    error_path.push(Jv::string(error_msg));
+                                    paths.push(error_path);
+                                    continue;
+                                }
                             }
                         }
-                        Jv::Object(obj) => {
-                            for (k, _) in obj.iter() {
-                                let mut new_path = current_path.clone();
-                                new_path.push(Jv::string(k));
-                                paths.push(new_path);
+
+                        // Get value at base path and iterate over it
+                        let base_value = get_value_at_path(input, &base_path);
+                        match &base_value {
+                            Jv::Array(arr) => {
+                                for i in 0..arr.len() {
+                                    let mut new_path = base_path.clone();
+                                    new_path.push(Jv::from_i64(i as i64));
+                                    paths.push(new_path);
+                                }
                             }
+                            Jv::Object(obj) => {
+                                for (k, _) in obj.iter() {
+                                    let mut new_path = base_path.clone();
+                                    new_path.push(Jv::string(k));
+                                    paths.push(new_path);
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
                 ExprKind::Optional(inner) => {
@@ -4204,8 +4222,13 @@ impl Interpreter {
             if !path.is_empty() {
                 if let Jv::String(s) = &path[0] {
                     if s.as_str() == "__INVALID_PATH_MARKER__" {
-                        // This is an error path, skip it
-                        continue;
+                        // This is an error path - return the error message
+                        if path.len() >= 2 {
+                            if let Jv::String(msg) = &path[1] {
+                                return Box::new(std::iter::once(Err(msg.to_string())));
+                            }
+                        }
+                        return Box::new(std::iter::once(Err("Invalid path expression".to_string())));
                     }
                 }
             }
@@ -4268,6 +4291,17 @@ impl Interpreter {
                 self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
 
                 for base_path in base_paths {
+                    // Check for invalid path marker
+                    if !base_path.is_empty() {
+                        if let Jv::String(marker) = &base_path[0] {
+                            if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                                // Propagate the invalid path marker
+                                paths.push(base_path);
+                                continue;
+                            }
+                        }
+                    }
+
                     // Get value at base path to evaluate index against
                     let base_value = get_value_at_path(input, &base_path);
 
@@ -4289,6 +4323,28 @@ impl Interpreter {
                 self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
 
                 for base_path in base_paths {
+                    // Check for invalid path marker and convert to iterator error
+                    if !base_path.is_empty() {
+                        if let Jv::String(marker) = &base_path[0] {
+                            if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                                // Get the result value and create iterator error
+                                if base_path.len() >= 2 {
+                                    let result_value = &base_path[1];
+                                    use crate::jv::print_jv;
+                                    let formatted = print_jv(result_value);
+                                    let error_msg = format!("Invalid path expression near attempt to iterate through {}", formatted);
+                                    let mut error_path = Vec::new();
+                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                                    error_path.push(Jv::string(error_msg));
+                                    paths.push(error_path);
+                                } else {
+                                    paths.push(base_path);
+                                }
+                                continue;
+                            }
+                        }
+                    }
+
                     // Get value at base path
                     let base_value = get_value_at_path(input, &base_path);
 
@@ -4384,6 +4440,43 @@ impl Interpreter {
                         }
                         paths.push(full_path);
                     }
+                }
+            }
+
+            // Handle transforming functions that don't preserve paths (map, sort, reverse, etc.)
+            ExprKind::FunctionCall { module: None, name, args }
+                if matches!(name.as_str(), "map" | "map_values" | "sort" | "sort_by" |
+                           "reverse" | "group_by" | "unique" | "unique_by" | "flatten" |
+                           "add" | "min" | "max" | "min_by" | "max_by" | "keys" | "keys_unsorted" |
+                           "values" | "to_entries" | "from_entries" | "with_entries" |
+                           "transpose" | "combinations" | "range" | "split" | "join") =>
+            {
+                // These functions transform data and don't preserve paths to the original input
+                // Evaluate the function and mark as invalid path
+                let value_at_path = get_value_at_path(input, &current_path);
+                let mut interp = Interpreter { ctx: ctx.clone() };
+
+                let func_call_expr = Expr {
+                    kind: ExprKind::FunctionCall {
+                        module: None,
+                        name: name.clone(),
+                        args: args.clone(),
+                    },
+                    span: expr.span,
+                };
+
+                if let Some(Ok(result)) = interp.eval_expr(&func_call_expr, value_at_path, ctx).next() {
+                    // Create an invalid path marker with the result
+                    let mut error_path = Vec::new();
+                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                    error_path.push(result);
+                    paths.push(error_path);
+                } else {
+                    // If evaluation fails or is empty, still mark as invalid
+                    let mut error_path = Vec::new();
+                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                    error_path.push(Jv::Null);
+                    paths.push(error_path);
                 }
             }
 

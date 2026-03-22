@@ -533,14 +533,24 @@
 - [x] Updated test results:
   - jq.test: 521/527 (98.9%)
   - Zero parse errors (down from 9)
+- [x] Fixed module metadata validation at parse time
+  - `module (.+1)` now errors: "Module metadata must be constant"
+  - `module {dep: .+1}` now errors: "Module metadata must be constant"
+  - `include "foo" (1+1)` now errors with constant check
+  - Added `is_constant_expr` helper to validate literal-only metadata
+- [x] Fixed invalid path expression detection for transforming functions
+  - `(map(select(.a == 1))[].a) |= .+1` now correctly errors
+  - Added detection for `map`, `sort`, `reverse`, `group_by`, etc. in path collection
+  - Path markers now propagate through Index and Iterator expressions
+- [x] Updated test results:
+  - jq.test: 525/527 (99.6%)
 
 ## Known Limitations
 
-The remaining 6 test failures are due to:
+The remaining 2 test failures are due to:
 
-1. **Invalid path expression detection** - `(map(select(.a == 1))[].a) |= .+1` should error because `map()` is not a valid path expression
-2. **Module metadata validation** - `module (.+1); 0` should fail compilation for invalid metadata expressions (3 tests)
-3. **JSON parse error messages** - Error message format differs from jq for some invalid JSON (2 tests)
+1. **JSON parse error messages** - Error message format differs from jq for some invalid JSON (2 tests)
+   - These are cosmetic differences in error message wording, functionality is correct
 
 ## Phase Progress
 
