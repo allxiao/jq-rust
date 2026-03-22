@@ -2984,6 +2984,34 @@ impl Interpreter {
                     // Try to get paths from inner expression
                     paths.extend(collect_paths(inner, input, ctx, current_path));
                 }
+                ExprKind::RecursiveDescent => {
+                    // .. returns all paths recursively
+                    fn collect_recursive(value: &Jv, base_path: Vec<Jv>, paths: &mut Vec<Vec<Jv>>) {
+                        // First add current path
+                        paths.push(base_path.clone());
+                        // Then recurse into children
+                        match value {
+                            Jv::Object(obj) => {
+                                for (k, v) in obj.iter() {
+                                    let mut child_path = base_path.clone();
+                                    child_path.push(Jv::string(k));
+                                    collect_recursive(&v, child_path, paths);
+                                }
+                            }
+                            Jv::Array(arr) => {
+                                for (i, v) in arr.iter().enumerate() {
+                                    let mut child_path = base_path.clone();
+                                    child_path.push(Jv::from_i64(i as i64));
+                                    collect_recursive(&v, child_path, paths);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    // Get value at current path
+                    let value_at_path = get_value_at_path(input, &current_path);
+                    collect_recursive(&value_at_path, current_path, &mut paths);
+                }
                 ExprKind::Comma(left, right) => {
                     // For comma, collect paths from both sides
                     paths.extend(collect_paths(left, input, ctx.clone(), current_path.clone()));
