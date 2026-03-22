@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~94.5%
+**Overall Progress**: ~95%
 
 ## Session Log
 
@@ -358,7 +358,7 @@
   - Key is the variable's value, not its name
 - [x] Implement iterator assignment (`.[] = value`)
   - Replaces all array elements or object values
-- [x] Integration tests: 498/527 jq.test cases passing (94.5%)
+- [x] Integration tests: 499/527 jq.test cases passing (94.7%)
 - [x] Fixed NaN parsing to keep as Number type (not Null)
   - `nan | type` now returns "number"
   - `nan | isnan` now returns true
@@ -430,7 +430,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 498           | 527         | 94.5%    |
+| jq.test    | 499           | 527         | 94.7%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
