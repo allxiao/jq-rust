@@ -3,7 +3,7 @@
 ## Current Status
 **Phase**: 5 - Built-in Functions (Expanded)
 **Last Updated**: 2026-03-21
-**Overall Progress**: ~95%
+**Overall Progress**: ~96%
 
 ## Session Log
 
@@ -371,18 +371,34 @@
 - [x] Implemented `path(..)` for recursive descent
   - `path(..)` now returns all paths in the input value
 
+### Session 20 (2026-03-21)
+- [x] Added split/2 function with regex flags support (case-insensitive with "i")
+- [x] Fixed del(.[a,b,c]) to delete multiple indices from arrays
+- [x] Added support for del((paths...) | indexing) piped path expressions
+- [x] Skip non-existent paths in del() instead of creating them
+- [x] Added validation for invalid path expressions in path()
+  - path() now correctly errors on non-path expressions like map, sort, etc.
+  - Error messages match jq format: "Invalid path expression with result X"
+  - Specific error messages for access attempts on invalid results
+- [x] Added validation for invalid path expressions in assignments
+  - Assignment to function call results (map, reverse, etc.) now errors properly
+  - Iterator assignment to function call results errors with correct message
+  - Both built-in and user-defined functions are handled
+- [x] Matched jq 1.8.1 string truncation in error messages (10 bytes, not characters)
+- [x] Integration tests: 505/527 jq.test cases passing (95.8%)
+  - Note: Some test file expectations don't match jq 1.8.1 behavior (error message formats)
+
 ## Known Limitations
 
 The remaining test failures are due to:
 
 1. **Module system** - import/include and modulemeta not implemented (9 errors)
-2. **Complex path expressions** - `del(expr | .[indices])` and similar piped paths
-3. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
-4. **Path function errors** - `path()` should detect invalid expressions and return specific errors
-5. **Recursive descent with select** - `..| select()` piped path expressions with update
-6. **Function call as lvalue** - `def x: .[1,2]; x=10` should work
-7. **Error message formats** - Some parse error messages differ from jq
-8. **Extreme exponents** - Numbers like `9E999999999` should preserve their notation
+2. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
+3. **Function call as lvalue** - `def x: .[1,2]; x=10` should work
+4. **Error message formats** - Some parse/runtime error messages differ from jq or test file
+5. **Extreme exponents** - Numbers like `9E999999999` should preserve their notation
+6. **Test file version mismatch** - Some tests expect older jq behavior (24-char truncation)
+7. **Complex path with recursive descent** - `(.. | select(...)) |= f` patterns
 
 ## Phase Progress
 
@@ -436,7 +452,7 @@ The remaining test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 499           | 527         | 94.7%    |
+| jq.test    | 505           | 527         | 95.8%    |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
 | onig.test  | 0             | TBD         | 0%       |
@@ -456,8 +472,8 @@ The remaining test failures are due to:
 - Target: Full jq compatibility
 
 ## Next Steps
-1. Fix path() to detect invalid expressions (map, etc.)
-2. Implement module system (import/include)
-3. Add INDEX and JOIN builtin functions
-4. Fix complex del() expressions with pipes
-5. Performance optimization
+1. Implement module system (import/include)
+2. Support filter parameters as update targets
+3. Support function call as lvalue (def x: .[1,2]; x=10)
+4. Performance optimization
+5. Documentation
