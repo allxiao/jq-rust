@@ -11,6 +11,7 @@ pub mod builtins;
 pub mod testing;
 pub mod module;
 pub mod regex_helper;
+pub mod intern;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;
