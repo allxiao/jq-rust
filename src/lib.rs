@@ -5,13 +5,13 @@
 
 pub mod jv;
 pub mod error;
+pub mod parser;
 
 // Future modules (commented until implemented):
-// pub mod parser;
 // pub mod compiler;
 // pub mod vm;
 // pub mod builtins;
-// pub mod io;
 
 pub use error::{JqError, Result};
 pub use jv::Jv;
+pub use parser::{parse, Expr, ExprKind};

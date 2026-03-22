@@ -1,9 +1,9 @@
 # jq-rust Conversion Progress
 
 ## Current Status
-**Phase**: 1 - Foundation Setup (In Progress)
+**Phase**: 3 - Compiler (Starting)
 **Last Updated**: 2026-03-20
-**Overall Progress**: ~10%
+**Overall Progress**: ~25%
 
 ## Session Log
 
@@ -30,20 +30,31 @@
   - Identity filter (.) working
   - Multiple input/output modes
 - [x] All 47 unit tests passing
-- [ ] Next: Implement lexer and parser for jq filter language
+- [x] Implemented Phase 2.1: Lexer
+  - Full tokenizer for jq filter syntax
+  - String interpolation support
+  - All operators and keywords
+- [x] Implemented Phase 2.2-2.3: Parser and AST
+  - Complete AST definitions for jq expressions
+  - Recursive descent parser with precedence handling
+  - Support for: identity, fields, pipes, commas, operators,
+    conditionals, try-catch, reduce, foreach, function calls,
+    arrays, objects, string interpolation
+- [x] All 74 unit tests passing
+- [ ] Next: Implement bytecode compiler and VM executor
 
 ## Phase Progress
 
-### Phase 1: Foundation (75%)
+### Phase 1: Foundation (100%)
 - [x] 1.1 JV (JSON Value) type system
 - [x] 1.2 JSON parsing
 - [x] 1.3 JSON output/printing
 - [x] 1.4 Basic CLI structure
 
-### Phase 2: Lexer & Parser (0%)
-- [ ] 2.1 Lexer implementation
-- [ ] 2.2 Parser implementation
-- [ ] 2.3 AST definitions
+### Phase 2: Lexer & Parser (100%)
+- [x] 2.1 Lexer implementation
+- [x] 2.2 Parser implementation
+- [x] 2.3 AST definitions
 
 ### Phase 3: Compiler (0%)
 - [ ] 3.1 Bytecode definitions
@@ -82,7 +93,7 @@
 
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
-| Unit tests | 47            | 47          | 100%     |
+| Unit tests | 74            | 74          | 100%     |
 | jq.test    | 0             | TBD         | 0%       |
 | base64.test| 0             | TBD         | 0%       |
 | uri.test   | 0             | TBD         | 0%       |
@@ -90,7 +101,8 @@
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project
-- (pending) - Phase 1: Foundation - JV types, JSON parsing, CLI
+- `cd72c3c` - Phase 1: Foundation - JV types, JSON parsing, CLI
+- (pending) - Phase 2: Lexer and Parser for jq filter expressions
 
 ## Notes
 - Reference C code is in `/jq` directory
@@ -98,8 +110,8 @@
 - Target: Full jq compatibility
 
 ## Next Steps
-1. Implement jq filter lexer (tokenizer)
-2. Implement jq filter parser (AST)
-3. Implement basic bytecode/opcodes
-4. Implement VM executor
-5. Add simple expressions: `.`, `.field`, `.[index]`, `.[]`
+1. Implement bytecode definitions (opcodes)
+2. Implement AST to bytecode compiler
+3. Implement VM/interpreter executor
+4. Wire up parser + compiler + VM in CLI
+5. Test with simple expressions: `.`, `.field`, `.[index]`, `.[]`
