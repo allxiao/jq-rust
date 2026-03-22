@@ -38,10 +38,7 @@ impl JvNumber {
                 None
             }
         };
-        JvNumber {
-            value,
-            int_value,
-        }
+        JvNumber { value, int_value }
     }
 
     /// Create a number from an f64

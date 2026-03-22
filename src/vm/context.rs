@@ -1,8 +1,8 @@
 //! Execution context for the interpreter
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use crate::jv::Jv;
 use crate::parser::FuncDef;
@@ -240,7 +240,9 @@ impl BuiltinRegistry {
     }
 
     pub fn all_names(&self) -> Vec<String> {
-        let mut names: Vec<_> = self.functions.keys()
+        let mut names: Vec<_> = self
+            .functions
+            .keys()
             .map(|(name, arity)| format!("{}/{}", name, arity))
             .collect();
         names.sort();
@@ -276,15 +278,32 @@ impl Context {
     }
 
     /// Bind a function definition with closure (keyed by name/arity)
-    pub fn bind_function(&mut self, name: &str, def: Rc<FuncDef>, closure_ctx: Rc<RefCell<Context>>) {
+    pub fn bind_function(
+        &mut self,
+        name: &str,
+        def: Rc<FuncDef>,
+        closure_ctx: Rc<RefCell<Context>>,
+    ) {
         let arity = def.params.len();
         let key = format!("{}/{}", name, arity);
-        self.bindings.insert(key, Binding::FilterClosure { def, ctx: closure_ctx });
+        self.bindings.insert(
+            key,
+            Binding::FilterClosure {
+                def,
+                ctx: closure_ctx,
+            },
+        );
     }
 
     /// Bind an expression with its context (for filter parameters)
-    pub fn bind_expr_with_context(&mut self, name: &str, expr: Rc<crate::parser::Expr>, ctx: Rc<RefCell<Context>>) {
-        self.bindings.insert(name.to_string(), Binding::ExprWithContext { expr, ctx });
+    pub fn bind_expr_with_context(
+        &mut self,
+        name: &str,
+        expr: Rc<crate::parser::Expr>,
+        ctx: Rc<RefCell<Context>>,
+    ) {
+        self.bindings
+            .insert(name.to_string(), Binding::ExprWithContext { expr, ctx });
     }
 
     /// Look up a binding by name
@@ -299,7 +318,10 @@ impl Context {
     }
 
     /// Look up an expression binding with its context
-    pub fn lookup_expr_with_context(&self, name: &str) -> Option<(Rc<crate::parser::Expr>, Rc<RefCell<Context>>)> {
+    pub fn lookup_expr_with_context(
+        &self,
+        name: &str,
+    ) -> Option<(Rc<crate::parser::Expr>, Rc<RefCell<Context>>)> {
         match self.lookup(name) {
             Some(Binding::ExprWithContext { expr, ctx }) => Some((expr, ctx)),
             _ => None,
@@ -316,7 +338,11 @@ impl Context {
     }
 
     /// Look up a function binding by name and arity, returns def and closure context
-    pub fn lookup_function(&self, name: &str, arity: usize) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
+    pub fn lookup_function(
+        &self,
+        name: &str,
+        arity: usize,
+    ) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
         let key = format!("{}/{}", name, arity);
         match self.lookup(&key) {
             Some(Binding::FilterClosure { def, ctx }) => Some((def, ctx)),
@@ -325,7 +351,12 @@ impl Context {
     }
 
     /// Look up a function in a specific module namespace
-    pub fn lookup_module_function(&self, module: &str, name: &str, arity: usize) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
+    pub fn lookup_module_function(
+        &self,
+        module: &str,
+        name: &str,
+        arity: usize,
+    ) -> Option<(Rc<FuncDef>, Rc<RefCell<Context>>)> {
         // Module functions are stored as "module::name/arity"
         let key = format!("{}::{}/{}", module, name, arity);
         match self.lookup(&key) {
@@ -335,10 +366,22 @@ impl Context {
     }
 
     /// Bind a module function (namespaced)
-    pub fn bind_module_function(&mut self, module: &str, name: &str, def: Rc<FuncDef>, closure_ctx: Rc<RefCell<Context>>) {
+    pub fn bind_module_function(
+        &mut self,
+        module: &str,
+        name: &str,
+        def: Rc<FuncDef>,
+        closure_ctx: Rc<RefCell<Context>>,
+    ) {
         let arity = def.params.len();
         let key = format!("{}::{}/{}", module, name, arity);
-        self.bindings.insert(key, Binding::FilterClosure { def, ctx: closure_ctx });
+        self.bindings.insert(
+            key,
+            Binding::FilterClosure {
+                def,
+                ctx: closure_ctx,
+            },
+        );
     }
 
     /// Bind a module data variable (namespaced)
@@ -388,31 +431,59 @@ fn byte_len_to_char_len(s: &str) -> usize {
     s.chars().count()
 }
 
-fn builtin_empty(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_empty(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     Box::new(std::iter::empty())
 }
 
-fn builtin_null(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_null(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::Null)
 }
 
-fn builtin_true(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_true(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::Bool(true))
 }
 
-fn builtin_false(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_false(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::Bool(false))
 }
 
-fn builtin_not(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_not(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::Bool(!input.is_truthy()))
 }
 
-fn builtin_type(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_type(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::string(input.type_name()))
 }
 
-fn builtin_length(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_length(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Null => ok(Jv::from_i64(0)),
         Jv::String(s) => ok(Jv::from_i64(s.char_len() as i64)),
@@ -431,7 +502,11 @@ fn builtin_length(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_keys(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_keys(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Object(o) => {
             let mut keys: Vec<_> = o.keys();
@@ -446,7 +521,11 @@ fn builtin_keys(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_keys_unsorted(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_keys_unsorted(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Object(o) => {
             let keys = o.keys();
@@ -460,7 +539,11 @@ fn builtin_keys_unsorted(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn
     }
 }
 
-fn builtin_values(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_values(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // values is a type selector that passes through everything except null
     match &input {
         Jv::Null => Box::new(std::iter::empty()),
@@ -468,7 +551,11 @@ fn builtin_values(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_add(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_add(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(arr) => {
             let items: Vec<Jv> = arr.iter().collect();
@@ -488,35 +575,55 @@ fn builtin_add(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
-fn builtin_reverse(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_reverse(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => ok(Jv::Array(a.reverse())),
         _ => err(format!("{} cannot be reversed", input.type_name())),
     }
 }
 
-fn builtin_sort(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sort(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => ok(Jv::Array(a.sort())),
         _ => err(format!("{} cannot be sorted", input.type_name())),
     }
 }
 
-fn builtin_unique(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_unique(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => ok(Jv::Array(a.sort().unique())),
         _ => err(format!("{} has no unique values", input.type_name())),
     }
 }
 
-fn builtin_flatten(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_flatten(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => ok(Jv::Array(a.flatten(None))),
         _ => err(format!("{} cannot be flattened", input.type_name())),
     }
 }
 
-fn builtin_flatten_depth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_flatten_depth(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let depth = match args.first().and_then(|v| v.as_i64()) {
         Some(d) if d >= 0 => d as usize,
         _ => return err("flatten depth must not be negative".to_string()),
@@ -527,7 +634,11 @@ fn builtin_flatten_depth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn 
     }
 }
 
-fn builtin_transpose(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_transpose(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(outer) => {
             if outer.is_empty() {
@@ -566,7 +677,11 @@ fn builtin_transpose(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Ite
     }
 }
 
-fn builtin_combinations(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_combinations(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // combinations: Cartesian product of arrays of arrays
     // [[1,2],[3,4]] -> [1,3], [1,4], [2,3], [2,4]
     match &input {
@@ -586,7 +701,11 @@ fn builtin_combinations(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn 
             }
 
             // Generate combinations iteratively
-            fn generate_combinations(arrays: &[Vec<Jv>], current: Vec<Jv>, results: &mut Vec<Vec<Jv>>) {
+            fn generate_combinations(
+                arrays: &[Vec<Jv>],
+                current: Vec<Jv>,
+                results: &mut Vec<Vec<Jv>>,
+            ) {
                 if arrays.is_empty() {
                     results.push(current);
                     return;
@@ -608,7 +727,11 @@ fn builtin_combinations(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn 
     }
 }
 
-fn builtin_combinations_n(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_combinations_n(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // combinations(n): combinations of n copies of the input array
     // [0,1] | combinations(2) -> [0,0], [0,1], [1,0], [1,1]
     let n = match args.first() {
@@ -629,7 +752,11 @@ fn builtin_combinations_n(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn
             let arrays: Vec<Vec<Jv>> = (0..n).map(|_| arr.iter().collect()).collect();
 
             // Generate combinations
-            fn generate_combinations(arrays: &[Vec<Jv>], current: Vec<Jv>, results: &mut Vec<Vec<Jv>>) {
+            fn generate_combinations(
+                arrays: &[Vec<Jv>],
+                current: Vec<Jv>,
+                results: &mut Vec<Vec<Jv>>,
+            ) {
                 if arrays.is_empty() {
                     results.push(current);
                     return;
@@ -651,42 +778,48 @@ fn builtin_combinations_n(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn
     }
 }
 
-fn builtin_first(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_first(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::Array(a) => {
-            match a.get(0) {
-                Some(v) => ok(v),
-                None => err("first requires non-empty array".to_string()),
-            }
-        }
+        Jv::Array(a) => match a.get(0) {
+            Some(v) => ok(v),
+            None => err("first requires non-empty array".to_string()),
+        },
         _ => err(format!("{} has no first element", input.type_name())),
     }
 }
 
-fn builtin_last(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_last(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::Array(a) => {
-            match a.get(-1) {
-                Some(v) => ok(v),
-                None => err("last requires non-empty array".to_string()),
-            }
-        }
+        Jv::Array(a) => match a.get(-1) {
+            Some(v) => ok(v),
+            None => err("last requires non-empty array".to_string()),
+        },
         _ => err(format!("{} has no last element", input.type_name())),
     }
 }
 
-fn builtin_nth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_nth(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let idx = match args.first().and_then(|v| v.as_i64()) {
         Some(i) => i,
         _ => return err("nth requires integer index".to_string()),
     };
     match &input {
-        Jv::Array(a) => {
-            match a.get(idx) {
-                Some(v) => ok(v),
-                None => ok(Jv::Null),
-            }
-        }
+        Jv::Array(a) => match a.get(idx) {
+            Some(v) => ok(v),
+            None => ok(Jv::Null),
+        },
         _ => err(format!("{} cannot be indexed", input.type_name())),
     }
 }
@@ -694,14 +827,22 @@ fn builtin_nth(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<I
 /// Marker prefix for errors that carry a JSON value instead of a simple string
 pub const JSON_ERROR_PREFIX: &str = "__JSON_ERROR__:";
 
-fn builtin_error(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_error(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_str() {
         Some(s) => err(s.to_string()),
         None => err(format!("{}{}", JSON_ERROR_PREFIX, input)),
     }
 }
 
-fn builtin_error_msg(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_error_msg(
+    _ctx: &mut Context,
+    _input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match args.first().and_then(|v| v.as_str()) {
         Some(s) => err(s.to_string()),
         None => {
@@ -714,40 +855,67 @@ fn builtin_error_msg(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Ite
     }
 }
 
-fn builtin_debug(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_debug(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // debug outputs to stderr and returns input unchanged
     use crate::jv::print_jv;
     eprintln!("[\"DEBUG:\",{}]", print_jv(&input));
     ok(input)
 }
 
-fn builtin_debug_msg(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_debug_msg(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     use crate::jv::print_jv;
-    let msg = args.first().map(|v| print_jv(v)).unwrap_or_else(|| "DEBUG".to_string());
+    let msg = args
+        .first()
+        .map(|v| print_jv(v))
+        .unwrap_or_else(|| "DEBUG".to_string());
     eprintln!("[{},{}]", msg, print_jv(&input));
     ok(input)
 }
 
-fn builtin_input_line_number(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_input_line_number(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // For now, return a placeholder - proper implementation needs runtime state
     ok(Jv::from_i64(1))
 }
 
-fn builtin_loc(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_loc(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let mut obj = crate::jv::JvObject::new();
     obj.set("file", Jv::string("<stdin>"));
     obj.set("line", Jv::from_i64(1));
     ok(Jv::Object(obj))
 }
 
-fn builtin_builtins(ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_builtins(
+    ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // Return list of builtin function names with arities in format "name/arity"
     let names = ctx.builtins.all_names();
     let arr: Vec<Jv> = names.iter().map(|s| Jv::string(s.clone())).collect();
     ok(Jv::from_vec(arr))
 }
 
-fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_now(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -756,37 +924,57 @@ fn builtin_now(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
     ok(Jv::from_f64(secs))
 }
 
-fn builtin_have_decnum(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_have_decnum(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // We don't have full arbitrary precision decimal support
     // Only extreme exponents are preserved as LiteralNumber
     ok(Jv::Bool(false))
 }
 
-fn builtin_have_literal_numbers(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_have_literal_numbers(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // We support extreme exponents as LiteralNumber
     ok(Jv::Bool(true))
 }
 
-fn builtin_input(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_input(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // input reads the next input from stdin
     // When there's no more input, jq returns an error with "break"
     // For testing purposes, we always return "break" since we don't have input management
     err("break".to_string())
 }
 
-fn builtin_inputs(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_inputs(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // inputs returns all remaining inputs
     // When there's no input, it returns nothing (empty)
     Box::new(std::iter::empty())
 }
 
-fn builtin_gmtime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_gmtime(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(n) => {
             let timestamp_f64 = n.as_f64();
             let timestamp = timestamp_f64 as i64;
             let frac_secs = timestamp_f64 - timestamp as f64; // fractional seconds
-            use chrono::{TimeZone, Datelike, Timelike};
+            use chrono::{Datelike, TimeZone, Timelike};
             match chrono::Utc.timestamp_opt(timestamp, 0) {
                 chrono::LocalResult::Single(dt) => {
                     // jq format: [year, month (0-11), day (1-31), hour, minute, second, weekday (0=Sun), yearday (0-365)]
@@ -794,13 +982,13 @@ fn builtin_gmtime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
                     let secs_with_frac = dt.second() as f64 + frac_secs;
                     let arr = vec![
                         Jv::from_i64(dt.year() as i64),
-                        Jv::from_i64(dt.month0() as i64),  // 0-indexed month
+                        Jv::from_i64(dt.month0() as i64), // 0-indexed month
                         Jv::from_i64(dt.day() as i64),
                         Jv::from_i64(dt.hour() as i64),
                         Jv::from_i64(dt.minute() as i64),
-                        Jv::from_f64(secs_with_frac),  // Include fractional seconds
+                        Jv::from_f64(secs_with_frac), // Include fractional seconds
                         Jv::from_i64(dt.weekday().num_days_from_sunday() as i64),
-                        Jv::from_i64(dt.ordinal0() as i64),  // 0-indexed day of year
+                        Jv::from_i64(dt.ordinal0() as i64), // 0-indexed day of year
                     ];
                     ok(Jv::from_vec(arr))
                 }
@@ -811,7 +999,11 @@ fn builtin_gmtime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_mktime(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(arr) => {
             if arr.len() < 3 {
@@ -828,7 +1020,7 @@ fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
             let minute = arr.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
             let second = arr.get(5).and_then(|v| v.as_i64()).unwrap_or(0) as u32;
 
-            use chrono::{TimeZone, NaiveDate};
+            use chrono::{NaiveDate, TimeZone};
             match NaiveDate::from_ymd_opt(year, month, day)
                 .and_then(|d| d.and_hms_opt(hour, minute, second))
             {
@@ -843,22 +1035,24 @@ fn builtin_mktime(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_strftime(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let format = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("strftime/1 requires a string format".to_string()),
     };
 
-    use chrono::{TimeZone, NaiveDate};
+    use chrono::{NaiveDate, TimeZone};
 
     match &input {
         Jv::Number(n) => {
             // Input is Unix timestamp
             let timestamp = n.as_f64() as i64;
             match chrono::Utc.timestamp_opt(timestamp, 0) {
-                chrono::LocalResult::Single(dt) => {
-                    ok(Jv::string(dt.format(&format).to_string()))
-                }
+                chrono::LocalResult::Single(dt) => ok(Jv::string(dt.format(&format).to_string())),
                 _ => err("invalid timestamp".to_string()),
             }
         }
@@ -890,21 +1084,23 @@ fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
 }
 
 // strflocaltime is the same as strftime for now (we don't have proper localtime support)
-fn builtin_strflocaltime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_strflocaltime(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let format = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("strflocaltime/1 requires a string format".to_string()),
     };
 
-    use chrono::{TimeZone, NaiveDate};
+    use chrono::{NaiveDate, TimeZone};
 
     match &input {
         Jv::Number(n) => {
             let timestamp = n.as_f64() as i64;
             match chrono::Utc.timestamp_opt(timestamp, 0) {
-                chrono::LocalResult::Single(dt) => {
-                    ok(Jv::string(dt.format(&format).to_string()))
-                }
+                chrono::LocalResult::Single(dt) => ok(Jv::string(dt.format(&format).to_string())),
                 _ => err("invalid timestamp".to_string()),
             }
         }
@@ -934,7 +1130,11 @@ fn builtin_strflocaltime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn 
     }
 }
 
-fn builtin_strptime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_strptime(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let format = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("strptime requires format string".to_string()),
@@ -942,12 +1142,12 @@ fn builtin_strptime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
 
     match &input {
         Jv::String(s) => {
-            use chrono::{NaiveDateTime, Datelike, Timelike};
+            use chrono::{Datelike, NaiveDateTime, Timelike};
             match NaiveDateTime::parse_from_str(s.as_str(), &format) {
                 Ok(dt) => {
                     let arr = vec![
                         Jv::from_i64(dt.year() as i64),
-                        Jv::from_i64(dt.month0() as i64),  // 0-indexed month
+                        Jv::from_i64(dt.month0() as i64), // 0-indexed month
                         Jv::from_i64(dt.day() as i64),
                         Jv::from_i64(dt.hour() as i64),
                         Jv::from_i64(dt.minute() as i64),
@@ -957,14 +1157,22 @@ fn builtin_strptime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
                     ];
                     ok(Jv::from_vec(arr))
                 }
-                Err(_) => err(format!("cannot parse '{}' with format '{}'", s.as_str(), format)),
+                Err(_) => err(format!(
+                    "cannot parse '{}' with format '{}'",
+                    s.as_str(),
+                    format
+                )),
             }
         }
         _ => err("strptime requires string".to_string()),
     }
 }
 
-fn builtin_fromdate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_fromdate(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // fromdate parses ISO 8601 date strings and returns Unix timestamp
     match &input {
         Jv::String(s) => {
@@ -990,7 +1198,11 @@ fn builtin_fromdate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
     }
 }
 
-fn builtin_todate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_todate(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // todate converts Unix timestamp to ISO 8601 string
     match &input {
         Jv::Number(n) => {
@@ -1012,17 +1224,29 @@ fn builtin_todate(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_dateadd(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_dateadd(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // dateadd(unit; amount) - not commonly used, stub for now
     err("dateadd not implemented".to_string())
 }
 
-fn builtin_datesub(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_datesub(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // datesub(unit; amount) - not commonly used, stub for now
     err("datesub not implemented".to_string())
 }
 
-fn builtin_modulemeta(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_modulemeta(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // modulemeta takes a module name and returns metadata
     match input {
         Jv::String(s) => {
@@ -1037,35 +1261,55 @@ fn builtin_modulemeta(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn It
     }
 }
 
-fn builtin_floor(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_floor(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_number() {
         Some(n) => ok(Jv::Number(n.floor())),
         None => err(format!("{} cannot be floored", input.type_name())),
     }
 }
 
-fn builtin_ceil(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ceil(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_number() {
         Some(n) => ok(Jv::Number(n.ceil())),
         None => err(format!("{} cannot be ceiled", input.type_name())),
     }
 }
 
-fn builtin_round(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_round(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_number() {
         Some(n) => ok(Jv::Number(n.round())),
         None => err(format!("{} cannot be rounded", input.type_name())),
     }
 }
 
-fn builtin_sqrt(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sqrt(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_number() {
         Some(n) => ok(Jv::Number(n.sqrt())),
         None => err(format!("{} has no sqrt", input.type_name())),
     }
 }
 
-fn builtin_fabs(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_fabs(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(n) => ok(Jv::Number(n.abs())),
         Jv::LiteralNumber(s) => {
@@ -1082,7 +1326,11 @@ fn builtin_fabs(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_tostring(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_tostring(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(_) => ok(input),
         _ => {
@@ -1092,7 +1340,11 @@ fn builtin_tostring(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
     }
 }
 
-fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_tonumber(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(_) => ok(input),
         Jv::String(s) => {
@@ -1100,11 +1352,20 @@ fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
             // Check for null byte - jq versions before 1.7 error on this
             if str_val.contains('\0') {
                 // Format the string with \u0000 style escaping to match jq
-                let escaped: String = str_val.chars().map(|c| {
-                    if c == '\0' { "\\u0000".to_string() }
-                    else { c.to_string() }
-                }).collect();
-                return err(format!("string (\"{}\") cannot be parsed as a number", escaped));
+                let escaped: String = str_val
+                    .chars()
+                    .map(|c| {
+                        if c == '\0' {
+                            "\\u0000".to_string()
+                        } else {
+                            c.to_string()
+                        }
+                    })
+                    .collect();
+                return err(format!(
+                    "string (\"{}\") cannot be parsed as a number",
+                    escaped
+                ));
             }
             // jq does NOT trim whitespace - reject strings with leading/trailing space
             match str_val.parse::<f64>() {
@@ -1116,8 +1377,10 @@ fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
                     } else {
                         str_val.to_string()
                     };
-                    err(format!("string ({}) cannot be parsed as a number",
-                        Jv::string(display_str.to_string())))
+                    err(format!(
+                        "string ({}) cannot be parsed as a number",
+                        Jv::string(display_str.to_string())
+                    ))
                 }
             }
         }
@@ -1125,68 +1388,109 @@ fn builtin_tonumber(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
     }
 }
 
-fn builtin_toboolean(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_toboolean(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     use crate::jv::print_jv;
     match &input {
         Jv::Bool(_) => ok(input),
-        Jv::String(s) => {
-            match s.as_str() {
-                "true" => ok(Jv::Bool(true)),
-                "false" => ok(Jv::Bool(false)),
-                _ => err(format!("string ({}) cannot be parsed as a boolean", print_jv(&input))),
-            }
-        }
-        _ => err(format!("{} ({}) cannot be parsed as a boolean", input.type_name(), print_jv(&input))),
+        Jv::String(s) => match s.as_str() {
+            "true" => ok(Jv::Bool(true)),
+            "false" => ok(Jv::Bool(false)),
+            _ => err(format!(
+                "string ({}) cannot be parsed as a boolean",
+                print_jv(&input)
+            )),
+        },
+        _ => err(format!(
+            "{} ({}) cannot be parsed as a boolean",
+            input.type_name(),
+            print_jv(&input)
+        )),
     }
 }
 
-fn builtin_ascii_downcase(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ascii_downcase(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             // Only convert ASCII characters to lowercase
-            let result: String = s.as_str().chars().map(|c| {
-                if c.is_ascii() { c.to_ascii_lowercase() } else { c }
-            }).collect();
+            let result: String = s
+                .as_str()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii() {
+                        c.to_ascii_lowercase()
+                    } else {
+                        c
+                    }
+                })
+                .collect();
             ok(Jv::string(result))
         }
         _ => err(format!("{} has no ascii_downcase", input.type_name())),
     }
 }
 
-fn builtin_ascii_upcase(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ascii_upcase(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             // Only convert ASCII characters to uppercase
-            let result: String = s.as_str().chars().map(|c| {
-                if c.is_ascii() { c.to_ascii_uppercase() } else { c }
-            }).collect();
+            let result: String = s
+                .as_str()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii() {
+                        c.to_ascii_uppercase()
+                    } else {
+                        c
+                    }
+                })
+                .collect();
             ok(Jv::string(result))
         }
         _ => err(format!("{} has no ascii_upcase", input.type_name())),
     }
 }
 
-fn builtin_ltrimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ltrimstr(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
-        (Jv::String(s), Some(Jv::String(prefix))) => {
-            ok(Jv::String(s.ltrimstr(prefix.as_str())))
-        }
+        (Jv::String(s), Some(Jv::String(prefix))) => ok(Jv::String(s.ltrimstr(prefix.as_str()))),
         // jq reports this as startswith error since ltrimstr uses it internally
         _ => err("startswith() requires string inputs".to_string()),
     }
 }
 
-fn builtin_rtrimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_rtrimstr(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
-        (Jv::String(s), Some(Jv::String(suffix))) => {
-            ok(Jv::String(s.rtrimstr(suffix.as_str())))
-        }
+        (Jv::String(s), Some(Jv::String(suffix))) => ok(Jv::String(s.rtrimstr(suffix.as_str()))),
         // jq reports this as endswith error since rtrimstr uses it internally
         _ => err("endswith() requires string inputs".to_string()),
     }
 }
 
-fn builtin_trimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_trimstr(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::String(s), Some(Jv::String(t))) => {
             // trimstr removes from both ends
@@ -1199,7 +1503,8 @@ fn builtin_trimstr(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
 
 // Unicode whitespace characters that jq considers as whitespace for trim
 fn is_jq_whitespace(c: char) -> bool {
-    matches!(c,
+    matches!(
+        c,
         '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' | // ASCII whitespace
         '\u{0085}' | // NEXT LINE
         '\u{00A0}' | // NO-BREAK SPACE
@@ -1211,11 +1516,15 @@ fn is_jq_whitespace(c: char) -> bool {
         '\u{2029}' | // PARAGRAPH SEPARATOR
         '\u{202F}' | // NARROW NO-BREAK SPACE
         '\u{205F}' | // MEDIUM MATHEMATICAL SPACE
-        '\u{3000}'   // IDEOGRAPHIC SPACE
+        '\u{3000}' // IDEOGRAPHIC SPACE
     )
 }
 
-fn builtin_trim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_trim(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let trimmed = s.as_str().trim_matches(is_jq_whitespace);
@@ -1225,7 +1534,11 @@ fn builtin_trim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_ltrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ltrim(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let trimmed = s.as_str().trim_start_matches(is_jq_whitespace);
@@ -1235,7 +1548,11 @@ fn builtin_ltrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterato
     }
 }
 
-fn builtin_rtrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_rtrim(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let trimmed = s.as_str().trim_end_matches(is_jq_whitespace);
@@ -1245,33 +1562,47 @@ fn builtin_rtrim(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterato
     }
 }
 
-fn builtin_startswith(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_startswith(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
-        (Jv::String(s), Some(Jv::String(prefix))) => {
-            ok(Jv::Bool(s.starts_with(prefix.as_str())))
-        }
+        (Jv::String(s), Some(Jv::String(prefix))) => ok(Jv::Bool(s.starts_with(prefix.as_str()))),
         _ => err("startswith requires string arguments".to_string()),
     }
 }
 
-fn builtin_endswith(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_endswith(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
-        (Jv::String(s), Some(Jv::String(suffix))) => {
-            ok(Jv::Bool(s.ends_with(suffix.as_str())))
-        }
+        (Jv::String(s), Some(Jv::String(suffix))) => ok(Jv::Bool(s.ends_with(suffix.as_str()))),
         _ => err("endswith requires string arguments".to_string()),
     }
 }
 
-fn builtin_split(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_split(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::String(s), Some(Jv::String(sep))) => {
             let sep_str = sep.as_str();
             let parts: Vec<Jv> = if sep_str.is_empty() {
                 // jq's split("") splits into individual characters without empty strings at edges
-                s.as_str().chars().map(|c| Jv::string(c.to_string())).collect()
+                s.as_str()
+                    .chars()
+                    .map(|c| Jv::string(c.to_string()))
+                    .collect()
             } else {
-                s.split(sep_str).into_iter().map(|p| Jv::String(p)).collect()
+                s.split(sep_str)
+                    .into_iter()
+                    .map(|p| Jv::String(p))
+                    .collect()
             };
             ok(Jv::from_vec(parts))
         }
@@ -1279,7 +1610,11 @@ fn builtin_split(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_split2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_split2(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // split/2 with regex pattern and flags
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
@@ -1299,25 +1634,25 @@ fn builtin_split2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
     };
 
     match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(&pattern_with_flags) {
-                Ok(re) => {
-                    let parts: Vec<Jv> = re.split(s.as_str())
-                        .map(|p| Jv::string(p))
-                        .collect();
-                    ok(Jv::from_vec(parts))
-                }
-                Err(e) => err(format!("invalid regex: {}", e)),
+        Jv::String(s) => match regex::Regex::new(&pattern_with_flags) {
+            Ok(re) => {
+                let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                ok(Jv::from_vec(parts))
             }
-        }
+            Err(e) => err(format!("invalid regex: {}", e)),
+        },
         _ => err("split requires string input".to_string()),
     }
 }
 
-fn builtin_join(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_join(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
         (Jv::Array(arr), Some(Jv::String(sep))) => {
-            use crate::jv::{JvPrintOptions, print_jv_with_options};
+            use crate::jv::{print_jv_with_options, JvPrintOptions};
 
             let mut result = String::new();
             let mut first = true;
@@ -1332,12 +1667,20 @@ fn builtin_join(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
                     _ => {
                         // Convert to string representation (tostring semantics)
                         let s = match &v {
-                            Jv::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+                            Jv::Bool(b) => {
+                                if *b {
+                                    "true".to_string()
+                                } else {
+                                    "false".to_string()
+                                }
+                            }
                             Jv::Number(n) => format!("{}", n),
                             Jv::Array(_) | Jv::Object(_) => {
-                                return err(format!("{} and {} cannot be added",
+                                return err(format!(
+                                    "{} and {} cannot be added",
                                     format!("string (\"{}\")", result.replace('"', "\\\"")),
-                                    format_value_for_join(&v)));
+                                    format_value_for_join(&v)
+                                ));
                             }
                             _ => {
                                 let opts = JvPrintOptions::compact();
@@ -1355,7 +1698,7 @@ fn builtin_join(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
 }
 
 fn format_value_for_join(v: &Jv) -> String {
-    use crate::jv::{JvPrintOptions, print_jv_with_options};
+    use crate::jv::{print_jv_with_options, JvPrintOptions};
     let opts = JvPrintOptions::compact();
     match v {
         Jv::Object(_) => format!("object ({})", print_jv_with_options(v, &opts)),
@@ -1364,11 +1707,13 @@ fn format_value_for_join(v: &Jv) -> String {
     }
 }
 
-fn builtin_has(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_has(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (&input, args.first()) {
-        (Jv::Object(o), Some(Jv::String(key))) => {
-            ok(Jv::Bool(o.has(key.as_str())))
-        }
+        (Jv::Object(o), Some(Jv::String(key))) => ok(Jv::Bool(o.has(key.as_str()))),
         (Jv::Array(a), Some(Jv::Number(n))) => {
             if let Some(idx) = n.as_i64() {
                 let len = a.len() as i64;
@@ -1383,11 +1728,13 @@ fn builtin_has(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<I
     }
 }
 
-fn builtin_in(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_in(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (args.first(), &input) {
-        (Some(Jv::Object(o)), Jv::String(key)) => {
-            ok(Jv::Bool(o.has(key.as_str())))
-        }
+        (Some(Jv::Object(o)), Jv::String(key)) => ok(Jv::Bool(o.has(key.as_str()))),
         (Some(Jv::Array(a)), Jv::Number(n)) => {
             if let Some(idx) = n.as_i64() {
                 let len = a.len() as i64;
@@ -1401,21 +1748,33 @@ fn builtin_in(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<It
     }
 }
 
-fn builtin_contains(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_contains(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match args.first() {
         Some(b) => ok(Jv::Bool(jv_contains(&input, b))),
         None => err("contains requires an argument".to_string()),
     }
 }
 
-fn builtin_inside(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_inside(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match args.first() {
         Some(b) => ok(Jv::Bool(jv_contains(b, &input))),
         None => err("inside requires an argument".to_string()),
     }
 }
 
-fn builtin_getpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_getpath(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match args.first() {
         Some(Jv::Array(path)) => {
             let mut current = input;
@@ -1448,14 +1807,12 @@ fn add_values(a: &Jv, b: &Jv) -> Jv {
 fn jv_contains(a: &Jv, b: &Jv) -> bool {
     match (a, b) {
         (_, Jv::Null) => true,
-        (Jv::Array(arr), Jv::Array(sub)) => {
-            sub.iter().all(|item| arr.iter().any(|x| jv_contains(&x, &item)))
-        }
-        (Jv::Object(obj), Jv::Object(sub)) => {
-            sub.iter().all(|(k, v)| {
-                obj.get(&k).map_or(false, |ov| jv_contains(&ov, &v))
-            })
-        }
+        (Jv::Array(arr), Jv::Array(sub)) => sub
+            .iter()
+            .all(|item| arr.iter().any(|x| jv_contains(&x, &item))),
+        (Jv::Object(obj), Jv::Object(sub)) => sub
+            .iter()
+            .all(|(k, v)| obj.get(&k).map_or(false, |ov| jv_contains(&ov, &v))),
         (Jv::String(s), Jv::String(sub)) => s.contains(sub.as_str()),
         _ => a == b,
     }
@@ -1463,7 +1820,11 @@ fn jv_contains(a: &Jv, b: &Jv) -> bool {
 
 // ============ Path functions ============
 
-fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_setpath(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let (path, value) = match (args.get(0), args.get(1)) {
         (Some(Jv::Array(p)), Some(v)) => (p, v.clone()),
         _ => return err("setpath requires path array and value".to_string()),
@@ -1493,8 +1854,12 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     let mut arr = match current {
                         Jv::Array(a) => a,
                         Jv::Null => crate::jv::JvArray::new(),
-                        Jv::Object(_) => return Err(format!("Cannot index object with number ({})", idx)),
-                        _ => return Err(format!("Cannot index {} with number", current.type_name())),
+                        Jv::Object(_) => {
+                            return Err(format!("Cannot index object with number ({})", idx))
+                        }
+                        _ => {
+                            return Err(format!("Cannot index {} with number", current.type_name()))
+                        }
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);
@@ -1517,14 +1882,19 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_delpaths(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_delpaths(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let paths = match args.first() {
         Some(Jv::Array(p)) => p,
         _ => return err("Paths must be specified as an array".to_string()),
     };
 
     // Collect all paths, sort by length (longest first) to delete leaf paths first
-    let mut path_list: Vec<Vec<Jv>> = paths.iter()
+    let mut path_list: Vec<Vec<Jv>> = paths
+        .iter()
         .filter_map(|p| match p {
             Jv::Array(arr) => Some(arr.iter().collect()),
             _ => None,
@@ -1589,7 +1959,11 @@ fn builtin_delpaths(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
     ok(result)
 }
 
-fn builtin_leaf_paths(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_leaf_paths(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     fn collect_leaf_paths(v: &Jv, current_path: Vec<Jv>, paths: &mut Vec<Vec<Jv>>) {
         match v {
             Jv::Object(o) => {
@@ -1618,13 +1992,21 @@ fn builtin_leaf_paths(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn It
     ok(Jv::from_vec(jv_paths))
 }
 
-fn builtin_path(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_path(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // path(expr) is special - it needs to be handled in the interpreter
     // This is a placeholder for the 1-arity version
     err("path(expr) must be handled by the interpreter".to_string())
 }
 
-fn builtin_paths(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_paths(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     fn collect_paths(v: &Jv, current_path: Vec<Jv>, paths: &mut Vec<Vec<Jv>>) {
         match v {
             Jv::Object(o) => {
@@ -1655,8 +2037,17 @@ fn builtin_paths(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterato
 
 // ============ Streaming functions ============
 
-fn builtin_tostream(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
-    fn collect_stream(v: &Jv, current_path: Vec<Jv>, stream: &mut Vec<Jv>, last_leaf_path: &mut Option<Vec<Jv>>) {
+fn builtin_tostream(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+    fn collect_stream(
+        v: &Jv,
+        current_path: Vec<Jv>,
+        stream: &mut Vec<Jv>,
+        last_leaf_path: &mut Option<Vec<Jv>>,
+    ) {
         match v {
             Jv::Object(o) => {
                 let keys: Vec<_> = o.iter().map(|(k, v)| (k.clone(), v)).collect();
@@ -1675,7 +2066,10 @@ fn builtin_tostream(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
             }
             _ => {
                 // Leaf value: [path, value]
-                stream.push(Jv::from_vec(vec![Jv::from_vec(current_path.clone()), v.clone()]));
+                stream.push(Jv::from_vec(vec![
+                    Jv::from_vec(current_path.clone()),
+                    v.clone(),
+                ]));
                 *last_leaf_path = Some(current_path);
             }
         }
@@ -1693,47 +2087,63 @@ fn builtin_tostream(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
     Box::new(stream.into_iter().map(Ok))
 }
 
-fn builtin_truncate_stream(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_truncate_stream(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // truncate_stream takes depth from input, stream from args
     let depth = match &input {
         Jv::Number(n) => n.as_i64().unwrap_or(0) as usize,
-        _ => return err(format!("truncate_stream depth must be number, got {}", input.type_name())),
+        _ => {
+            return err(format!(
+                "truncate_stream depth must be number, got {}",
+                input.type_name()
+            ))
+        }
     };
 
     // args contains the stream items
-    let results: Vec<_> = args.iter().filter_map(|item| {
-        match item {
-            Jv::Array(arr) if !arr.is_empty() => {
-                // Get the path (first element)
-                let path = match arr.get(0) {
-                    Some(Jv::Array(p)) => p,
-                    _ => return None,
-                };
+    let results: Vec<_> = args
+        .iter()
+        .filter_map(|item| {
+            match item {
+                Jv::Array(arr) if !arr.is_empty() => {
+                    // Get the path (first element)
+                    let path = match arr.get(0) {
+                        Some(Jv::Array(p)) => p,
+                        _ => return None,
+                    };
 
-                // Truncate the path
-                if path.len() <= depth {
-                    return None; // Path is too short, skip
+                    // Truncate the path
+                    if path.len() <= depth {
+                        return None; // Path is too short, skip
+                    }
+
+                    let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
+
+                    if arr.len() == 1 {
+                        // End marker
+                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
+                    } else {
+                        // Value entry
+                        let value = arr.get(1).unwrap_or(Jv::Null);
+                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
+                    }
                 }
-
-                let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
-
-                if arr.len() == 1 {
-                    // End marker
-                    Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
-                } else {
-                    // Value entry
-                    let value = arr.get(1).unwrap_or(Jv::Null);
-                    Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
-                }
+                _ => None,
             }
-            _ => None,
-        }
-    }).collect();
+        })
+        .collect();
 
     Box::new(results.into_iter())
 }
 
-fn builtin_fromstream(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_fromstream(
+    _ctx: &mut Context,
+    _input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // fromstream reconstructs a value from stream entries
     // Each arg is a stream entry: [path, value] or [path] (end marker)
     let mut result = Jv::Null;
@@ -1802,7 +2212,11 @@ fn set_at_path(current: Jv, path: &[Jv], value: Jv) -> Jv {
 
 // ============ Min/Max functions ============
 
-fn builtin_min(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_min(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
             if a.is_empty() {
@@ -1820,7 +2234,11 @@ fn builtin_min(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
-fn builtin_max(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_max(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
             if a.is_empty() {
@@ -1840,7 +2258,11 @@ fn builtin_max(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
 
 // ============ Index functions ============
 
-fn builtin_indices(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_indices(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let target = match args.first() {
         Some(t) => t,
         None => return err("indices requires an argument".to_string()),
@@ -1906,7 +2328,11 @@ fn builtin_indices(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_index(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_index(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let target = match args.first() {
         Some(t) => t,
         None => return err("index requires an argument".to_string()),
@@ -1962,7 +2388,11 @@ fn builtin_index(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_rindex(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_rindex(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let target = match args.first() {
         Some(t) => t,
         None => return err("rindex requires an argument".to_string()),
@@ -2022,34 +2452,50 @@ fn builtin_rindex(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
 
 // ============ Object functions ============
 
-fn builtin_to_entries(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_to_entries(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Object(o) => {
-            let entries: Vec<Jv> = o.iter().map(|(k, v)| {
-                let mut entry = crate::jv::JvObject::new();
-                entry.set("key", Jv::string(k));
-                entry.set("value", v);
-                Jv::Object(entry)
-            }).collect();
+            let entries: Vec<Jv> = o
+                .iter()
+                .map(|(k, v)| {
+                    let mut entry = crate::jv::JvObject::new();
+                    entry.set("key", Jv::string(k));
+                    entry.set("value", v);
+                    Jv::Object(entry)
+                })
+                .collect();
             ok(Jv::from_vec(entries))
         }
-        _ => err(format!("{} cannot be converted to entries", input.type_name())),
+        _ => err(format!(
+            "{} cannot be converted to entries",
+            input.type_name()
+        )),
     }
 }
 
-fn builtin_from_entries(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_from_entries(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
             let mut obj = crate::jv::JvObject::new();
             for entry in a.iter() {
                 if let Jv::Object(e) = entry {
                     // Support both {key, value}, {Key, Value}, {name, value}, {Name, Value}, {k, v}
-                    let key = e.get("key")
+                    let key = e
+                        .get("key")
                         .or_else(|| e.get("Key"))
                         .or_else(|| e.get("name"))
                         .or_else(|| e.get("Name"))
                         .or_else(|| e.get("k"));
-                    let value = e.get("value")
+                    let value = e
+                        .get("value")
                         .or_else(|| e.get("Value"))
                         .or_else(|| e.get("v"))
                         .unwrap_or(Jv::Null);
@@ -2063,22 +2509,37 @@ fn builtin_from_entries(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn 
             }
             ok(Jv::Object(obj))
         }
-        _ => err(format!("{} cannot be converted from entries", input.type_name())),
+        _ => err(format!(
+            "{} cannot be converted from entries",
+            input.type_name()
+        )),
     }
 }
 
-fn builtin_with_entries(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_with_entries(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // with_entries(f) is defined as to_entries | map(f) | from_entries
     // This needs special handling in the interpreter
     err("with_entries must be handled by the interpreter".to_string())
 }
 
-fn builtin_del(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_del(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // del(path) is special - needs interpreter support
     err("del(path) must be handled by the interpreter".to_string())
 }
 
-fn builtin_env(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_env(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let mut obj = crate::jv::JvObject::new();
     for (key, value) in std::env::vars() {
         obj.set(&key, Jv::string(value));
@@ -2088,36 +2549,60 @@ fn builtin_env(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 
 // ============ Type checking functions ============
 
-fn builtin_infinite(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_infinite(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::from_f64(f64::INFINITY))
 }
 
-fn builtin_nan(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_nan(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::from_f64(f64::NAN))
 }
 
-fn builtin_isinfinite(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_isinfinite(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::Bool(n.is_infinite())),
         None => ok(Jv::Bool(false)),
     }
 }
 
-fn builtin_isnan(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_isnan(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::Bool(n.is_nan())),
         None => ok(Jv::Bool(false)),
     }
 }
 
-fn builtin_isnormal(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_isnormal(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::Bool(n.is_normal())),
         None => ok(Jv::Bool(false)),
     }
 }
 
-fn builtin_isfinite(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_isfinite(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::Bool(n.is_finite())),
         None => ok(Jv::Bool(false)),
@@ -2125,56 +2610,88 @@ fn builtin_isfinite(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
 }
 
 // Type selectors - return input if type matches, otherwise empty
-fn builtin_arrays(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_arrays(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_objects(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_objects(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Object(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_iterables(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_iterables(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(_) | Jv::Object(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_booleans(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_booleans(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Bool(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_numbers(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_numbers(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Number(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_strings(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_strings(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(_) => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_nulls(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_nulls(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Null => ok(input),
         _ => Box::new(std::iter::empty()),
     }
 }
 
-fn builtin_scalars(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_scalars(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(_) | Jv::Object(_) => Box::new(std::iter::empty()),
         _ => ok(input),
@@ -2183,99 +2700,158 @@ fn builtin_scalars(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
 
 // ============ More math functions ============
 
-fn builtin_log(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_log(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.ln())),
         None => err(format!("{} has no log", input.type_name())),
     }
 }
 
-fn builtin_log10(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_log10(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.log10())),
         None => err(format!("{} has no log10", input.type_name())),
     }
 }
 
-fn builtin_log2(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_log2(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.log2())),
         None => err(format!("{} has no log2", input.type_name())),
     }
 }
 
-fn builtin_exp(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_exp(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.exp())),
         None => err(format!("{} has no exp", input.type_name())),
     }
 }
 
-fn builtin_exp10(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_exp10(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(10.0_f64.powf(n))),
         None => err(format!("{} has no exp10", input.type_name())),
     }
 }
 
-fn builtin_exp2(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_exp2(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.exp2())),
         None => err(format!("{} has no exp2", input.type_name())),
     }
 }
 
-fn builtin_pow(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_pow(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match (input.as_f64(), args.first().and_then(|v| v.as_f64())) {
         (Some(base), Some(exp)) => ok(Jv::from_f64(base.powf(exp))),
         _ => err("pow requires number arguments".to_string()),
     }
 }
 
-fn builtin_pow2(_ctx: &mut Context, _input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_pow2(
+    _ctx: &mut Context,
+    _input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // pow(base; exp) - two argument form
-    match (args.first().and_then(|v| v.as_f64()), args.get(1).and_then(|v| v.as_f64())) {
+    match (
+        args.first().and_then(|v| v.as_f64()),
+        args.get(1).and_then(|v| v.as_f64()),
+    ) {
         (Some(base), Some(exp)) => ok(Jv::from_f64(base.powf(exp))),
         _ => err("pow requires number arguments".to_string()),
     }
 }
 
-fn builtin_sin(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sin(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.sin())),
         None => err(format!("{} has no sin", input.type_name())),
     }
 }
 
-fn builtin_cos(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_cos(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.cos())),
         None => err(format!("{} has no cos", input.type_name())),
     }
 }
 
-fn builtin_tan(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_tan(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.tan())),
         None => err(format!("{} has no tan", input.type_name())),
     }
 }
 
-fn builtin_asin(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_asin(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.asin())),
         None => err(format!("{} has no asin", input.type_name())),
     }
 }
 
-fn builtin_acos(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_acos(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.acos())),
         None => err(format!("{} has no acos", input.type_name())),
     }
 }
 
-fn builtin_atan(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_atan(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match input.as_f64() {
         Some(n) => ok(Jv::from_f64(n.atan())),
         None => err(format!("{} has no atan", input.type_name())),
@@ -2284,24 +2860,30 @@ fn builtin_atan(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
 
 // ============ Regex functions (basic implementations) ============
 
-fn builtin_test(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_test(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str(),
         _ => return err("test requires string pattern".to_string()),
     };
 
     match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(pattern) {
-                Ok(re) => ok(Jv::Bool(re.is_match(s.as_str()))),
-                Err(e) => err(format!("invalid regex: {}", e)),
-            }
-        }
+        Jv::String(s) => match regex::Regex::new(pattern) {
+            Ok(re) => ok(Jv::Bool(re.is_match(s.as_str()))),
+            Err(e) => err(format!("invalid regex: {}", e)),
+        },
         _ => err("test requires string input".to_string()),
     }
 }
 
-fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_test_flags(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("test requires string pattern".to_string()),
@@ -2336,8 +2918,8 @@ fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
                 Ok(re) => {
                     if no_empty {
                         // With 'n' flag, only match if we have a non-empty match
-                        let has_nonempty_match = re.find_iter(s.as_str())
-                            .any(|m| !m.as_str().is_empty());
+                        let has_nonempty_match =
+                            re.find_iter(s.as_str()).any(|m| !m.as_str().is_empty());
                         ok(Jv::Bool(has_nonempty_match))
                     } else {
                         ok(Jv::Bool(re.is_match(s.as_str())))
@@ -2350,7 +2932,11 @@ fn builtin_test_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
     }
 }
 
-fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_match(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // Accept either string pattern or [pattern] or [pattern, flags] array
     let (pattern, flags) = match args.first() {
         Some(Jv::String(s)) => (s.as_str().to_string(), String::new()),
@@ -2397,7 +2983,8 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
 
                     if global {
                         // Global matching - return all matches
-                        let matches: Vec<Jv> = re.captures_iter(s_str)
+                        let matches: Vec<Jv> = re
+                            .captures_iter(s_str)
                             .filter(|caps| {
                                 // Skip empty matches if 'n' flag is set
                                 if no_empty {
@@ -2410,25 +2997,50 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                 let m = caps.get(0).unwrap();
                                 let mut obj = crate::jv::JvObject::new();
                                 // Convert byte offsets to character offsets
-                                obj.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
-                                obj.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
+                                obj.set(
+                                    "offset",
+                                    Jv::from_i64(
+                                        byte_offset_to_char_offset(s_str, m.start()) as i64
+                                    ),
+                                );
+                                obj.set(
+                                    "length",
+                                    Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64),
+                                );
                                 obj.set("string", Jv::string(m.as_str()));
 
                                 // Capture groups with names
-                                let captures: Vec<Jv> = caps.iter().skip(1)
+                                let captures: Vec<Jv> = caps
+                                    .iter()
+                                    .skip(1)
                                     .enumerate()
                                     .map(|(i, c)| {
                                         let name = capture_names.get(i).and_then(|n| *n);
                                         match c {
                                             Some(m) => {
                                                 let mut g = crate::jv::JvObject::new();
-                                                g.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
-                                                g.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
+                                                g.set(
+                                                    "offset",
+                                                    Jv::from_i64(byte_offset_to_char_offset(
+                                                        s_str,
+                                                        m.start(),
+                                                    )
+                                                        as i64),
+                                                );
+                                                g.set(
+                                                    "length",
+                                                    Jv::from_i64(
+                                                        byte_len_to_char_len(m.as_str()) as i64
+                                                    ),
+                                                );
                                                 g.set("string", Jv::string(m.as_str()));
-                                                g.set("name", match name {
-                                                    Some(n) => Jv::string(n),
-                                                    None => Jv::Null,
-                                                });
+                                                g.set(
+                                                    "name",
+                                                    match name {
+                                                        Some(n) => Jv::string(n),
+                                                        None => Jv::Null,
+                                                    },
+                                                );
                                                 Jv::Object(g)
                                             }
                                             None => {
@@ -2437,10 +3049,13 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                                 g.set("offset", Jv::from_i64(-1));
                                                 g.set("length", Jv::from_i64(0));
                                                 g.set("string", Jv::Null);
-                                                g.set("name", match name {
-                                                    Some(n) => Jv::string(n),
-                                                    None => Jv::Null,
-                                                });
+                                                g.set(
+                                                    "name",
+                                                    match name {
+                                                        Some(n) => Jv::string(n),
+                                                        None => Jv::Null,
+                                                    },
+                                                );
                                                 Jv::Object(g)
                                             }
                                         }
@@ -2449,7 +3064,8 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                 obj.set("captures", Jv::from_vec(captures));
 
                                 Jv::Object(obj)
-                            }).collect();
+                            })
+                            .collect();
 
                         if matches.is_empty() {
                             Box::new(std::iter::empty())
@@ -2467,25 +3083,48 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
 
                             let mut obj = crate::jv::JvObject::new();
                             // Convert byte offsets to character offsets
-                            obj.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
-                            obj.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
+                            obj.set(
+                                "offset",
+                                Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64),
+                            );
+                            obj.set(
+                                "length",
+                                Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64),
+                            );
                             obj.set("string", Jv::string(m.as_str()));
 
                             // Capture groups with names
-                            let captures: Vec<Jv> = caps.iter().skip(1)
+                            let captures: Vec<Jv> = caps
+                                .iter()
+                                .skip(1)
                                 .enumerate()
                                 .map(|(i, c)| {
                                     let name = capture_names.get(i).and_then(|n| *n);
                                     match c {
                                         Some(m) => {
                                             let mut g = crate::jv::JvObject::new();
-                                            g.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
-                                            g.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
+                                            g.set(
+                                                "offset",
+                                                Jv::from_i64(byte_offset_to_char_offset(
+                                                    s_str,
+                                                    m.start(),
+                                                )
+                                                    as i64),
+                                            );
+                                            g.set(
+                                                "length",
+                                                Jv::from_i64(
+                                                    byte_len_to_char_len(m.as_str()) as i64
+                                                ),
+                                            );
                                             g.set("string", Jv::string(m.as_str()));
-                                            g.set("name", match name {
-                                                Some(n) => Jv::string(n),
-                                                None => Jv::Null,
-                                            });
+                                            g.set(
+                                                "name",
+                                                match name {
+                                                    Some(n) => Jv::string(n),
+                                                    None => Jv::Null,
+                                                },
+                                            );
                                             Jv::Object(g)
                                         }
                                         None => {
@@ -2494,10 +3133,13 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                             g.set("offset", Jv::from_i64(-1));
                                             g.set("length", Jv::from_i64(0));
                                             g.set("string", Jv::Null);
-                                            g.set("name", match name {
-                                                Some(n) => Jv::string(n),
-                                                None => Jv::Null,
-                                            });
+                                            g.set(
+                                                "name",
+                                                match name {
+                                                    Some(n) => Jv::string(n),
+                                                    None => Jv::Null,
+                                                },
+                                            );
                                             Jv::Object(g)
                                         }
                                     }
@@ -2518,7 +3160,11 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_match_flags(ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_match_flags(
+    ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // Delegate to builtin_match with [pattern, flags] array
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.clone(),
@@ -2534,7 +3180,11 @@ fn builtin_match_flags(ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
     builtin_match(ctx, input, &[array_arg])
 }
 
-fn builtin_capture(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_capture(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str(),
         _ => return err("capture requires string pattern".to_string()),
@@ -2565,7 +3215,11 @@ fn builtin_capture(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_splits(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_splits(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
         _ => return err("splits requires string pattern".to_string()),
@@ -2585,22 +3239,22 @@ fn builtin_splits(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterato
     };
 
     match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(&pattern_with_flags) {
-                Ok(re) => {
-                    let parts: Vec<Jv> = re.split(s.as_str())
-                        .map(|p| Jv::string(p))
-                        .collect();
-                    Box::new(parts.into_iter().map(Ok))
-                }
-                Err(e) => err(format!("invalid regex: {}", e)),
+        Jv::String(s) => match regex::Regex::new(&pattern_with_flags) {
+            Ok(re) => {
+                let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                Box::new(parts.into_iter().map(Ok))
             }
-        }
+            Err(e) => err(format!("invalid regex: {}", e)),
+        },
         _ => err("splits requires string input".to_string()),
     }
 }
 
-fn builtin_splits2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_splits2(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     // This is the same as builtin_splits but with explicit 2-arity
     let pattern = match args.first() {
         Some(Jv::String(s)) => s.as_str().to_string(),
@@ -2644,9 +3298,7 @@ fn builtin_splits2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
 
                         Box::new(parts.into_iter().map(Ok))
                     } else {
-                        let parts: Vec<Jv> = re.split(s.as_str())
-                            .map(|p| Jv::string(p))
-                            .collect();
+                        let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
                         Box::new(parts.into_iter().map(Ok))
                     }
                 }
@@ -2657,47 +3309,55 @@ fn builtin_splits2(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
     }
 }
 
-fn builtin_sub(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sub(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let (pattern, replacement) = match (args.get(0), args.get(1)) {
         (Some(Jv::String(p)), Some(Jv::String(r))) => (p.as_str(), r.as_str()),
         _ => return err("sub requires pattern and replacement strings".to_string()),
     };
 
     match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(pattern) {
-                Ok(re) => {
-                    let result = re.replace(s.as_str(), replacement);
-                    ok(Jv::string(result.into_owned()))
-                }
-                Err(e) => err(format!("invalid regex: {}", e)),
+        Jv::String(s) => match regex::Regex::new(pattern) {
+            Ok(re) => {
+                let result = re.replace(s.as_str(), replacement);
+                ok(Jv::string(result.into_owned()))
             }
-        }
+            Err(e) => err(format!("invalid regex: {}", e)),
+        },
         _ => err("sub requires string input".to_string()),
     }
 }
 
-fn builtin_gsub(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_gsub(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let (pattern, replacement) = match (args.get(0), args.get(1)) {
         (Some(Jv::String(p)), Some(Jv::String(r))) => (p.as_str(), r.as_str()),
         _ => return err("gsub requires pattern and replacement strings".to_string()),
     };
 
     match &input {
-        Jv::String(s) => {
-            match regex::Regex::new(pattern) {
-                Ok(re) => {
-                    let result = re.replace_all(s.as_str(), replacement);
-                    ok(Jv::string(result.into_owned()))
-                }
-                Err(e) => err(format!("invalid regex: {}", e)),
+        Jv::String(s) => match regex::Regex::new(pattern) {
+            Ok(re) => {
+                let result = re.replace_all(s.as_str(), replacement);
+                ok(Jv::string(result.into_owned()))
             }
-        }
+            Err(e) => err(format!("invalid regex: {}", e)),
+        },
         _ => err("gsub requires string input".to_string()),
     }
 }
 
-fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_scan(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(p)) => p.as_str().to_string(),
         _ => return err("scan requires pattern string".to_string()),
@@ -2713,9 +3373,11 @@ fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
 
                     if has_groups {
                         // If there are capture groups, return arrays of the captures
-                        let matches: Vec<_> = re.captures_iter(&s_str)
+                        let matches: Vec<_> = re
+                            .captures_iter(&s_str)
                             .map(|caps| {
-                                let groups: Vec<Jv> = caps.iter()
+                                let groups: Vec<Jv> = caps
+                                    .iter()
                                     .skip(1)
                                     .map(|m| match m {
                                         Some(m) => Jv::string(m.as_str()),
@@ -2728,7 +3390,8 @@ fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
                         Box::new(matches.into_iter())
                     } else {
                         // No capture groups - return the full match string
-                        let matches: Vec<_> = re.find_iter(&s_str)
+                        let matches: Vec<_> = re
+                            .find_iter(&s_str)
                             .map(|m| Ok(Jv::string(m.as_str())))
                             .collect();
                         Box::new(matches.into_iter())
@@ -2741,7 +3404,11 @@ fn builtin_scan(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
-fn builtin_scan_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_scan_flags(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let pattern = match args.first() {
         Some(Jv::String(p)) => p.as_str().to_string(),
         _ => return err("scan requires pattern string".to_string()),
@@ -2778,9 +3445,11 @@ fn builtin_scan_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
 
                     if has_groups {
                         // If there are capture groups, return arrays of the captures
-                        let matches: Vec<_> = re.captures_iter(&s_str)
+                        let matches: Vec<_> = re
+                            .captures_iter(&s_str)
                             .map(|caps| {
-                                let groups: Vec<Jv> = caps.iter()
+                                let groups: Vec<Jv> = caps
+                                    .iter()
                                     .skip(1)
                                     .map(|m| match m {
                                         Some(m) => Jv::string(m.as_str()),
@@ -2793,7 +3462,8 @@ fn builtin_scan_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
                         Box::new(matches.into_iter())
                     } else {
                         // No capture groups - return the full match string
-                        let matches: Vec<_> = re.find_iter(&s_str)
+                        let matches: Vec<_> = re
+                            .find_iter(&s_str)
                             .map(|m| Ok(Jv::string(m.as_str())))
                             .collect();
                         Box::new(matches.into_iter())
@@ -2808,7 +3478,11 @@ fn builtin_scan_flags(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Ite
 
 // ============ Additional array/string functions ============
 
-fn builtin_bsearch(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_bsearch(
+    _ctx: &mut Context,
+    input: Jv,
+    args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     let target = match args.first() {
         Some(t) => t,
         None => return err("bsearch requires an argument".to_string()),
@@ -2840,24 +3514,34 @@ fn builtin_bsearch(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
         }
         _ => {
             use crate::jv::print_jv;
-            err(format!("{} ({}) cannot be searched from", input.type_name(), print_jv(&input)))
+            err(format!(
+                "{} ({}) cannot be searched from",
+                input.type_name(),
+                print_jv(&input)
+            ))
         }
     }
 }
 
-fn builtin_explode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_explode(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
-            let codepoints: Vec<Jv> = s.as_str().chars()
-                .map(|c| Jv::from_i64(c as i64))
-                .collect();
+            let codepoints: Vec<Jv> = s.as_str().chars().map(|c| Jv::from_i64(c as i64)).collect();
             ok(Jv::from_vec(codepoints))
         }
         _ => err("explode requires string input".to_string()),
     }
 }
 
-fn builtin_implode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_implode(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     const REPLACEMENT_CHAR: char = '\u{FFFD}'; // Unicode replacement character
 
     match &input {
@@ -2894,7 +3578,11 @@ fn builtin_implode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
                         return err(format!("string (\"{}\") can't be imploded, unicode codepoint needs to be numeric", display));
                     }
                     _ => {
-                        return err(format!("{} ({}) can't be imploded, unicode codepoint needs to be numeric", item.type_name(), item.type_name()));
+                        return err(format!(
+                            "{} ({}) can't be imploded, unicode codepoint needs to be numeric",
+                            item.type_name(),
+                            item.type_name()
+                        ));
                     }
                 }
             }
@@ -2904,7 +3592,11 @@ fn builtin_implode(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
     }
 }
 
-fn builtin_ascii(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_ascii(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let s = s.as_str();
@@ -2917,20 +3609,30 @@ fn builtin_ascii(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterato
     }
 }
 
-fn builtin_utf8bytelength(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_utf8bytelength(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => {
-            ok(Jv::from_i64(s.as_str().len() as i64))
-        }
+        Jv::String(s) => ok(Jv::from_i64(s.as_str().len() as i64)),
         _ => {
             // Format error message to match jq's format
             use crate::jv::print_jv;
-            err(format!("{} ({}) only strings have UTF-8 byte length", input.type_name(), print_jv(&input)))
+            err(format!(
+                "{} ({}) only strings have UTF-8 byte length",
+                input.type_name(),
+                print_jv(&input)
+            ))
         }
     }
 }
 
-fn builtin_tojson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_tojson(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     use crate::jv::print_jv;
     // For LiteralNumber, since have_decnum=false, convert to f64 (clamped to max)
     // This makes tojson output consistent with jq without decnum support
@@ -2941,7 +3643,7 @@ fn builtin_tojson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
             let negative = s_upper.starts_with('-');
             let s_clean = s_upper.trim_start_matches('-');
             if let Some(e_pos) = s_clean.find('E') {
-                if let Ok(exp) = s_clean[e_pos+1..].parse::<i64>() {
+                if let Ok(exp) = s_clean[e_pos + 1..].parse::<i64>() {
                     if exp > 308 {
                         // Overflow to max f64
                         let max_str = if negative {
@@ -2959,11 +3661,15 @@ fn builtin_tojson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterat
             // For other cases, use the literal representation
             ok(Jv::string(print_jv(&input)))
         }
-        _ => ok(Jv::string(print_jv(&input)))
+        _ => ok(Jv::string(print_jv(&input))),
     }
 }
 
-fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_fromjson(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             use crate::jv::parse_json;
@@ -2979,7 +3685,9 @@ fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
                     let err_str = e.to_string();
                     // For specific jq-style error messages, return them directly without prefix
                     // These are: "Invalid numeric literal...", "Invalid string literal..."
-                    if err_str.contains("Invalid numeric literal") || err_str.contains("Invalid string literal") {
+                    if err_str.contains("Invalid numeric literal")
+                        || err_str.contains("Invalid string literal")
+                    {
                         // Extract the message after "parse error: "
                         if let Some(msg) = err_str.strip_prefix("parse error: ") {
                             return err(msg.to_string());
@@ -2994,38 +3702,66 @@ fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
 }
 
 // Higher-order functions that need special handling but have arity 1
-fn builtin_group_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_group_by(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     err("group_by must be handled by the interpreter".to_string())
 }
 
-fn builtin_unique_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_unique_by(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     err("unique_by must be handled by the interpreter".to_string())
 }
 
-fn builtin_sort_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sort_by(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     err("sort_by must be handled by the interpreter".to_string())
 }
 
-fn builtin_max_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_max_by(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     err("max_by must be handled by the interpreter".to_string())
 }
 
-fn builtin_min_by(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_min_by(
+    _ctx: &mut Context,
+    _input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     err("min_by must be handled by the interpreter".to_string())
 }
 
 // ============ Format functions ============
 
-fn builtin_base64(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_base64(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => {
-            ok(Jv::string(crate::builtins::format::base64_encode(s.as_str())))
-        }
+        Jv::String(s) => ok(Jv::string(crate::builtins::format::base64_encode(
+            s.as_str(),
+        ))),
         _ => err("@base64 requires string input".to_string()),
     }
 }
 
-fn builtin_base64d(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_base64d(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let s_str = s.as_str();
@@ -3048,7 +3784,10 @@ fn builtin_base64d(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
                         quoted
                     };
                     if e.contains("6-bit remainder") {
-                        err(format!("string ({}) trailing base64 byte found", display_str))
+                        err(format!(
+                            "string ({}) trailing base64 byte found",
+                            display_str
+                        ))
                     } else {
                         err(format!("string ({}) is not valid base64 data", display_str))
                     }
@@ -3059,16 +3798,22 @@ fn builtin_base64d(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Itera
     }
 }
 
-fn builtin_uri(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_uri(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => {
-            ok(Jv::string(crate::builtins::format::uri_encode(s.as_str())))
-        }
+        Jv::String(s) => ok(Jv::string(crate::builtins::format::uri_encode(s.as_str()))),
         _ => err("@uri requires string input".to_string()),
     }
 }
 
-fn builtin_urid(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_urid(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::String(s) => {
             let s_str = s.as_str();
@@ -3081,7 +3826,11 @@ fn builtin_urid(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator
     }
 }
 
-fn builtin_csv(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_csv(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
             let items: Vec<Jv> = a.iter().collect();
@@ -3091,7 +3840,11 @@ fn builtin_csv(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
-fn builtin_tsv(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_tsv(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
         Jv::Array(a) => {
             let items: Vec<Jv> = a.iter().collect();
@@ -3101,28 +3854,40 @@ fn builtin_tsv(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<
     }
 }
 
-fn builtin_html(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_html(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => {
-            ok(Jv::string(crate::builtins::format::html_escape(s.as_str())))
-        }
+        Jv::String(s) => ok(Jv::string(crate::builtins::format::html_escape(s.as_str()))),
         _ => err("@html requires string input".to_string()),
     }
 }
 
-fn builtin_sh(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_sh(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     match &input {
-        Jv::String(s) => {
-            ok(Jv::string(crate::builtins::format::sh_escape(s.as_str())))
-        }
+        Jv::String(s) => ok(Jv::string(crate::builtins::format::sh_escape(s.as_str()))),
         _ => err("@sh requires string input".to_string()),
     }
 }
 
-fn builtin_json(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_json(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::string(crate::builtins::format::to_json(&input)))
 }
 
-fn builtin_text(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
+fn builtin_text(
+    _ctx: &mut Context,
+    input: Jv,
+    _args: &[Jv],
+) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     ok(Jv::string(crate::builtins::format::to_text(&input)))
 }

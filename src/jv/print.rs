@@ -277,11 +277,7 @@ mod tests {
 
     #[test]
     fn test_print_array() {
-        let arr = JvArray::from_vec(vec![
-            Jv::from_i64(1),
-            Jv::from_i64(2),
-            Jv::from_i64(3),
-        ]);
+        let arr = JvArray::from_vec(vec![Jv::from_i64(1), Jv::from_i64(2), Jv::from_i64(3)]);
         assert_eq!(print_jv(&Jv::Array(arr)), "[1,2,3]");
     }
 
@@ -295,10 +291,7 @@ mod tests {
 
     #[test]
     fn test_print_pretty() {
-        let arr = JvArray::from_vec(vec![
-            Jv::from_i64(1),
-            Jv::from_i64(2),
-        ]);
+        let arr = JvArray::from_vec(vec![Jv::from_i64(1), Jv::from_i64(2)]);
         let output = print_jv_with_options(&Jv::Array(arr), &JvPrintOptions::pretty());
         assert!(output.contains('\n'));
         assert!(output.contains("  ")); // Default indent

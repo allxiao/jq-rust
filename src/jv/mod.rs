@@ -3,18 +3,18 @@
 //! This module provides the core JSON value type and operations,
 //! equivalent to jv.c/jv.h in the C implementation.
 
-mod value;
-mod number;
-mod string;
 mod array;
+mod number;
 mod object;
 mod parse;
 mod print;
+mod string;
+mod value;
 
-pub use value::Jv;
-pub use number::JvNumber;
-pub use string::JvString;
 pub use array::JvArray;
+pub use number::JvNumber;
 pub use object::JvObject;
 pub use parse::{parse_json, parse_json_stream};
-pub use print::{JvPrintOptions, print_jv, print_jv_with_options};
+pub use print::{print_jv, print_jv_with_options, JvPrintOptions};
+pub use string::JvString;
+pub use value::Jv;

@@ -2,14 +2,14 @@
 //!
 //! Handles import/include statements and module resolution.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::cell::RefCell;
-use std::fs;
 
-use crate::jv::{Jv, parse_json_stream};
-use crate::parser::{parse_program_full, Import, FuncDef, Expr, ExprKind, ObjectKey, Literal};
+use crate::jv::{parse_json_stream, Jv};
+use crate::parser::{parse_program_full, Expr, ExprKind, FuncDef, Import, Literal, ObjectKey};
 use crate::vm::Context;
 
 /// Module loader and cache
@@ -94,14 +94,21 @@ impl ModuleLoader {
             }
 
             // Try {search_dir}/{rel_path}/jq/main.jq
-            let p2 = search_dir.join(rel_path).join("jq").join(format!("main{}", suffix));
+            let p2 = search_dir
+                .join(rel_path)
+                .join("jq")
+                .join(format!("main{}", suffix));
             if p2.exists() && p2.is_file() {
                 return Some(p2);
             }
 
             // Try {search_dir}/{rel_path}/{basename}.jq
             if let Some(basename) = Path::new(rel_path).file_name() {
-                let p3 = search_dir.join(rel_path).join(format!("{}{}", basename.to_string_lossy(), suffix));
+                let p3 = search_dir.join(rel_path).join(format!(
+                    "{}{}",
+                    basename.to_string_lossy(),
+                    suffix
+                ));
                 if p3.exists() && p3.is_file() {
                     return Some(p3);
                 }
@@ -118,7 +125,8 @@ impl ModuleLoader {
         }
 
         // Find the module file
-        let file_path = self.find_module(rel_path, ".jq")
+        let file_path = self
+            .find_module(rel_path, ".jq")
             .ok_or_else(|| format!("module not found: {}", rel_path))?;
 
         // Read and parse
@@ -136,7 +144,8 @@ impl ModuleLoader {
         };
 
         // Cache it
-        self.module_cache.insert(rel_path.to_string(), loaded.clone());
+        self.module_cache
+            .insert(rel_path.to_string(), loaded.clone());
 
         Ok(loaded)
     }
@@ -144,7 +153,8 @@ impl ModuleLoader {
     /// Load a data module (.json file)
     pub fn load_data_module(&mut self, rel_path: &str) -> Result<Jv, String> {
         // Find the module file
-        let file_path = self.find_module(rel_path, ".json")
+        let file_path = self
+            .find_module(rel_path, ".json")
             .ok_or_else(|| format!("data module not found: {}", rel_path))?;
 
         // Read and parse JSON
@@ -193,7 +203,9 @@ impl ModuleLoader {
             let result = if import.is_data {
                 // Data import: import "path" as $var
                 let data = self.load_data_module(&import.path)?;
-                let var_name = import.alias.as_ref()
+                let var_name = import
+                    .alias
+                    .as_ref()
                     .ok_or_else(|| "data import requires alias".to_string())?;
 
                 // Bind as $var and $var::var
@@ -205,7 +217,9 @@ impl ModuleLoader {
                 self.load_and_bind_module(&import.path, None, ctx, origin_dir)
             } else {
                 // Import: import "path" as name
-                let alias = import.alias.as_ref()
+                let alias = import
+                    .alias
+                    .as_ref()
                     .ok_or_else(|| "import requires alias".to_string())?;
                 self.load_and_bind_module(&import.path, Some(alias), ctx, origin_dir)
             };
@@ -229,7 +243,8 @@ impl ModuleLoader {
         _origin_dir: Option<&Path>,
     ) -> Result<(), String> {
         // Find the module file to get its directory for nested imports
-        let module_file = self.find_module(path, ".jq")
+        let module_file = self
+            .find_module(path, ".jq")
             .ok_or_else(|| format!("module not found: {}", path))?;
         let module_dir = module_file.parent().map(|p| p.to_path_buf());
 
@@ -246,10 +261,16 @@ impl ModuleLoader {
         for def in &module.defs {
             let def_rc = Rc::new(def.clone());
             if let Some(alias_name) = alias {
-                ctx.borrow_mut().bind_module_function(alias_name, &def.name, def_rc, module_ctx.clone());
+                ctx.borrow_mut().bind_module_function(
+                    alias_name,
+                    &def.name,
+                    def_rc,
+                    module_ctx.clone(),
+                );
             } else {
                 // include - bind directly without namespace
-                ctx.borrow_mut().bind_function(&def.name, def_rc, module_ctx.clone());
+                ctx.borrow_mut()
+                    .bind_function(&def.name, def_rc, module_ctx.clone());
             }
         }
         Ok(())
@@ -261,7 +282,9 @@ impl ModuleLoader {
         if let ExprKind::Object(entries) = &metadata.kind {
             for entry in entries {
                 let key_name = match &entry.key {
-                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => s.clone(),
+                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => {
+                        s.clone()
+                    }
                     _ => continue,
                 };
 
@@ -330,7 +353,9 @@ impl ModuleLoader {
             let mut obj = crate::jv::JvObject::new();
             for entry in entries {
                 let key = match &entry.key {
-                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => s.clone(),
+                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => {
+                        s.clone()
+                    }
                     _ => continue,
                 };
                 // Try to get a constant value
@@ -351,9 +376,7 @@ impl ModuleLoader {
             ExprKind::Literal(Literal::Bool(b)) => Some(Jv::Bool(*b)),
             ExprKind::Literal(Literal::Number(n)) => Some(Jv::from_f64(*n)),
             ExprKind::Literal(Literal::String(s)) => Some(Jv::string(s)),
-            ExprKind::Object(_entries) => {
-                self.eval_const_object(expr).map(Jv::Object)
-            }
+            ExprKind::Object(_entries) => self.eval_const_object(expr).map(Jv::Object),
             ExprKind::Array(Some(inner)) => {
                 // Try to evaluate array with single constant
                 self.eval_const_value(inner).map(|v| Jv::from_vec(vec![v]))
@@ -368,7 +391,9 @@ impl ModuleLoader {
         if let ExprKind::Object(entries) = &metadata.kind {
             for entry in entries {
                 let key_name = match &entry.key {
-                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => s.clone(),
+                    ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => {
+                        s.clone()
+                    }
                     _ => continue,
                 };
                 if key_name == "search" {

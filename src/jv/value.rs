@@ -2,11 +2,11 @@
 //!
 //! This is the central data type for jq, representing any JSON value.
 
-use std::fmt;
 use std::cmp::Ordering;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use super::{JvNumber, JvString, JvArray, JvObject};
+use super::{JvArray, JvNumber, JvObject, JvString};
 use crate::error::JqError;
 
 /// The core JSON value type
@@ -281,9 +281,7 @@ impl Jv {
                 };
                 arr.get(i).unwrap_or_else(Jv::null)
             }
-            (Jv::Object(obj), Jv::String(s)) => {
-                obj.get(s.as_str()).unwrap_or_else(Jv::null)
-            }
+            (Jv::Object(obj), Jv::String(s)) => obj.get(s.as_str()).unwrap_or_else(Jv::null),
             (Jv::Null, _) => Jv::null(),
             (Jv::Invalid(e), _) => Jv::Invalid(e.clone()),
             (_, Jv::Invalid(e)) => Jv::Invalid(e.clone()),
@@ -315,9 +313,9 @@ impl Jv {
             Jv::Array(arr) => Box::new(arr.iter()),
             Jv::Object(obj) => Box::new(obj.values()),
             Jv::Null => Box::new(std::iter::empty()),
-            _ => Box::new(std::iter::once(Jv::invalid_with_error(
-                JqError::Type(format!("cannot iterate over {}", self.type_name()))
-            ))),
+            _ => Box::new(std::iter::once(Jv::invalid_with_error(JqError::Type(
+                format!("cannot iterate over {}", self.type_name()),
+            )))),
         }
     }
 
@@ -327,12 +325,9 @@ impl Jv {
             Jv::Array(arr) => Box::new(
                 arr.iter()
                     .enumerate()
-                    .map(|(i, v)| (Jv::from_i64(i as i64), v))
+                    .map(|(i, v)| (Jv::from_i64(i as i64), v)),
             ),
-            Jv::Object(obj) => Box::new(
-                obj.iter()
-                    .map(|(k, v)| (Jv::string(k), v))
-            ),
+            Jv::Object(obj) => Box::new(obj.iter().map(|(k, v)| (Jv::string(k), v))),
             _ => Box::new(std::iter::empty()),
         }
     }
@@ -452,7 +447,11 @@ fn compare_literal_numbers(a: &str, b: &str) -> Ordering {
 
     // Different signs: negative < positive
     if neg_a != neg_b {
-        return if neg_a { Ordering::Less } else { Ordering::Greater };
+        return if neg_a {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
 
     // Same sign - compare by exponent first (for extreme differences)
@@ -495,17 +494,29 @@ fn compare_number_to_literal(n: JvNumber, s: &str) -> Ordering {
 
     // Different signs
     if n_negative != negative {
-        return if n_negative { Ordering::Less } else { Ordering::Greater };
+        return if n_negative {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
 
     // Same sign - compare based on exponent
     // For f64, max exponent is about 308
     if exp > 400 {
         // Literal is huge - if positive, it's greater; if negative, it's less
-        return if negative { Ordering::Greater } else { Ordering::Less };
+        return if negative {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        };
     } else if exp < -400 {
         // Literal is tiny - if positive, number is greater; if negative, number is less
-        return if negative { Ordering::Less } else { Ordering::Greater };
+        return if negative {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
 
     // For reasonable exponents, compare values

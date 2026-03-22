@@ -3,8 +3,8 @@
 //! This module implements execution of jq filter expressions.
 //! It uses an AST-walking interpreter approach for simplicity.
 
-mod interpreter;
 mod context;
+mod interpreter;
 
-pub use interpreter::{Interpreter, interpret};
 pub use context::Context;
+pub use interpreter::{interpret, Interpreter};

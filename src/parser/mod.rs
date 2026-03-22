@@ -2,12 +2,12 @@
 //!
 //! This module implements parsing of jq filter expressions.
 
-mod token;
-mod lexer;
 mod ast;
+mod lexer;
 mod parser;
+mod token;
 
-pub use token::{Token, TokenKind};
-pub use lexer::Lexer;
 pub use ast::*;
-pub use parser::{parse, parse_program_full, Parser, ParseError};
+pub use lexer::Lexer;
+pub use parser::{parse, parse_program_full, ParseError, Parser};
+pub use token::{Token, TokenKind};

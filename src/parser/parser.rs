@@ -4,7 +4,7 @@
 
 use super::ast::*;
 use super::lexer::Lexer;
-use super::token::{Token, TokenKind, Span};
+use super::token::{Span, Token, TokenKind};
 
 /// Parse error
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +15,11 @@ pub struct ParseError {
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "parse error at {}-{}: {}", self.span.start, self.span.end, self.message)
+        write!(
+            f,
+            "parse error at {}-{}: {}",
+            self.span.start, self.span.end, self.message
+        )
     }
 }
 
@@ -684,10 +688,7 @@ impl<'a> Parser<'a> {
                 expr = Expr::new(
                     ExprKind::Index {
                         expr: Box::new(expr),
-                        index: Box::new(Expr::new(
-                            ExprKind::Literal(Literal::String(name)),
-                            end,
-                        )),
+                        index: Box::new(Expr::new(ExprKind::Literal(Literal::String(name)), end)),
                         optional,
                     },
                     span,
@@ -921,7 +922,10 @@ impl<'a> Parser<'a> {
             TokenKind::LiteralNumber(s) => {
                 let s = s.clone();
                 self.advance();
-                Ok(Expr::new(ExprKind::Literal(Literal::LiteralNumber(s)), token.span))
+                Ok(Expr::new(
+                    ExprKind::Literal(Literal::LiteralNumber(s)),
+                    token.span,
+                ))
             }
 
             // String literal
@@ -934,8 +938,14 @@ impl<'a> Parser<'a> {
 
                 // Check for true, false, null
                 match name.as_str() {
-                    "true" => Ok(Expr::new(ExprKind::Literal(Literal::Bool(true)), token.span)),
-                    "false" => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), token.span)),
+                    "true" => Ok(Expr::new(
+                        ExprKind::Literal(Literal::Bool(true)),
+                        token.span,
+                    )),
+                    "false" => Ok(Expr::new(
+                        ExprKind::Literal(Literal::Bool(false)),
+                        token.span,
+                    )),
                     "null" => Ok(Expr::new(ExprKind::Literal(Literal::Null), token.span)),
                     _ => {
                         // Check for namespaced call: name::func
@@ -960,7 +970,11 @@ impl<'a> Parser<'a> {
                             Vec::new()
                         };
                         Ok(Expr::new(
-                            ExprKind::FunctionCall { module, name: func_name, args },
+                            ExprKind::FunctionCall {
+                                module,
+                                name: func_name,
+                                args,
+                            },
                             token.span,
                         ))
                     }
@@ -971,7 +985,11 @@ impl<'a> Parser<'a> {
             TokenKind::Not => {
                 self.advance();
                 Ok(Expr::new(
-                    ExprKind::FunctionCall { module: None, name: "not".to_string(), args: Vec::new() },
+                    ExprKind::FunctionCall {
+                        module: None,
+                        name: "not".to_string(),
+                        args: Vec::new(),
+                    },
                     token.span,
                 ))
             }
@@ -1120,12 +1138,18 @@ impl<'a> Parser<'a> {
                     self.advance();
                     break Ok(if parts.len() == 1 {
                         if let StringPart::Text(s) = &parts[0] {
-                            Expr::new(ExprKind::Literal(Literal::String(s.clone())), start.merge(end))
+                            Expr::new(
+                                ExprKind::Literal(Literal::String(s.clone())),
+                                start.merge(end),
+                            )
                         } else {
                             Expr::new(ExprKind::StringInterp(parts), start.merge(end))
                         }
                     } else if parts.is_empty() {
-                        Expr::new(ExprKind::Literal(Literal::String(String::new())), start.merge(end))
+                        Expr::new(
+                            ExprKind::Literal(Literal::String(String::new())),
+                            start.merge(end),
+                        )
                     } else {
                         Expr::new(ExprKind::StringInterp(parts), start.merge(end))
                     });
@@ -1185,7 +1209,10 @@ impl<'a> Parser<'a> {
         let end = self.current.span;
         self.expect(&TokenKind::RBracket)?;
 
-        Ok(Expr::new(ExprKind::Array(Some(Box::new(expr))), start.merge(end)))
+        Ok(Expr::new(
+            ExprKind::Array(Some(Box::new(expr))),
+            start.merge(end),
+        ))
     }
 
     /// Parse object construction
@@ -1488,7 +1515,10 @@ impl<'a> Parser<'a> {
         };
 
         let end = self.previous.span;
-        Ok(Expr::new(ExprKind::TryCatch { expr, catch }, start.merge(end)))
+        Ok(Expr::new(
+            ExprKind::TryCatch { expr, catch },
+            start.merge(end),
+        ))
     }
 
     /// Parse reduce expression
@@ -1680,15 +1710,13 @@ impl<'a> Parser<'a> {
             ExprKind::Literal(_) => true,
             ExprKind::Array(None) => true,
             ExprKind::Array(Some(inner)) => self.is_constant_expr(inner),
-            ExprKind::Object(entries) => {
-                entries.iter().all(|entry| {
-                    let key_const = match &entry.key {
-                        ObjectKey::Ident(_) | ObjectKey::String(_) | ObjectKey::Shorthand(_) => true,
-                        ObjectKey::Expr(e) => self.is_constant_expr(e),
-                    };
-                    key_const && self.is_constant_expr(&entry.value)
-                })
-            }
+            ExprKind::Object(entries) => entries.iter().all(|entry| {
+                let key_const = match &entry.key {
+                    ObjectKey::Ident(_) | ObjectKey::String(_) | ObjectKey::Shorthand(_) => true,
+                    ObjectKey::Expr(e) => self.is_constant_expr(e),
+                };
+                key_const && self.is_constant_expr(&entry.value)
+            }),
             // Everything else is non-constant
             _ => false,
         }
@@ -1768,10 +1796,7 @@ mod tests {
     #[test]
     fn test_string() {
         let expr = parse_ok(r#""hello""#);
-        assert!(matches!(
-            expr.kind,
-            ExprKind::Literal(Literal::String(_))
-        ));
+        assert!(matches!(expr.kind, ExprKind::Literal(Literal::String(_))));
     }
 
     #[test]
@@ -1805,7 +1830,13 @@ mod tests {
     fn test_binary_ops() {
         let expr = parse_ok("1 + 2 * 3");
         // Should parse as 1 + (2 * 3) due to precedence
-        assert!(matches!(expr.kind, ExprKind::BinaryOp { op: BinaryOp::Add, .. }));
+        assert!(matches!(
+            expr.kind,
+            ExprKind::BinaryOp {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -1813,7 +1844,10 @@ mod tests {
         let expr = parse_ok(".[]");
         assert!(matches!(
             expr.kind,
-            ExprKind::Iterator { optional: false, .. }
+            ExprKind::Iterator {
+                optional: false,
+                ..
+            }
         ));
     }
 

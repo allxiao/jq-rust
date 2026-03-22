@@ -2,9 +2,9 @@
 //!
 //! Reduces memory usage and allocation overhead for frequently used keys.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::cell::RefCell;
 
 thread_local! {
     static INTERNER: RefCell<StringInterner> = RefCell::new(StringInterner::new());

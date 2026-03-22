@@ -4,13 +4,15 @@ use crate::jv::Jv;
 
 /// Base64 encode a string
 pub fn base64_encode(s: &str) -> String {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     STANDARD.encode(s.as_bytes())
 }
 
 /// Base64 decode a string
 pub fn base64_decode(s: &str) -> Result<String, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD, engine::general_purpose::STANDARD};
+    use base64::{
+        engine::general_purpose::STANDARD, engine::general_purpose::STANDARD_NO_PAD, Engine as _,
+    };
 
     // Handle empty string and padding-only strings
     let trimmed = s.trim_end_matches('=');
@@ -19,7 +21,8 @@ pub fn base64_decode(s: &str) -> Result<String, String> {
     }
 
     // Try standard first (with padding), then without padding
-    let bytes = STANDARD.decode(s)
+    let bytes = STANDARD
+        .decode(s)
         .or_else(|_| STANDARD_NO_PAD.decode(trimmed))
         .map_err(|e| format!("base64 decode error: {}", e))?;
     String::from_utf8(bytes).map_err(|e| format!("invalid UTF-8 in base64: {}", e))
@@ -89,7 +92,13 @@ pub fn html_escape(s: &str) -> String {
 pub fn csv_field(v: &Jv) -> String {
     match v {
         Jv::Null => String::new(),
-        Jv::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+        Jv::Bool(b) => {
+            if *b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
         Jv::Number(n) => format!("{}", n),
         Jv::String(s) => {
             // jq always quotes strings in CSV output
@@ -109,15 +118,20 @@ pub fn to_csv(arr: &[Jv]) -> String {
 pub fn tsv_field(v: &Jv) -> String {
     match v {
         Jv::Null => String::new(),
-        Jv::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
-        Jv::Number(n) => format!("{}", n),
-        Jv::String(s) => {
-            s.as_str()
-                .replace('\\', "\\\\")
-                .replace('\t', "\\t")
-                .replace('\n', "\\n")
-                .replace('\r', "\\r")
+        Jv::Bool(b) => {
+            if *b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
         }
+        Jv::Number(n) => format!("{}", n),
+        Jv::String(s) => s
+            .as_str()
+            .replace('\\', "\\\\")
+            .replace('\t', "\\t")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r"),
         _ => format!("{}", v),
     }
 }
@@ -134,9 +148,9 @@ pub fn sh_escape(s: &str) -> String {
     }
 
     // Check if string needs quoting
-    let needs_quoting = s.chars().any(|c| {
-        !matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | '-' | '.' | '/' | ':' | '@')
-    });
+    let needs_quoting = s.chars().any(
+        |c| !matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | '-' | '.' | '/' | ':' | '@'),
+    );
 
     if !needs_quoting {
         s.to_string()

@@ -107,10 +107,7 @@ pub enum ExprKind {
     },
 
     /// Iterator: .[]
-    Iterator {
-        expr: Box<Expr>,
-        optional: bool,
-    },
+    Iterator { expr: Box<Expr>, optional: bool },
 
     /// Pipe: expr | expr
     Pipe(Box<Expr>, Box<Expr>),
@@ -186,10 +183,7 @@ pub enum ExprKind {
     },
 
     /// Label: label $name | expr
-    Label {
-        name: String,
-        body: Box<Expr>,
-    },
+    Label { name: String, body: Box<Expr> },
 
     /// Break: break $name
     Break(String),
@@ -207,10 +201,7 @@ pub enum ExprKind {
     },
 
     /// Update assignment: expr |= expr
-    Update {
-        target: Box<Expr>,
-        value: Box<Expr>,
-    },
+    Update { target: Box<Expr>, value: Box<Expr> },
 
     /// Assignment with operator: expr += expr, etc.
     UpdateOp {
@@ -220,19 +211,13 @@ pub enum ExprKind {
     },
 
     /// Assignment: expr = expr
-    Assign {
-        target: Box<Expr>,
-        value: Box<Expr>,
-    },
+    Assign { target: Box<Expr>, value: Box<Expr> },
 
     /// Alternative: expr // expr
     Alternative(Box<Expr>, Box<Expr>),
 
     /// Function definition (local)
-    LocalDef {
-        def: FuncDef,
-        body: Box<Expr>,
-    },
+    LocalDef { def: FuncDef, body: Box<Expr> },
 
     /// Parenthesized expression
     Paren(Box<Expr>),
@@ -260,36 +245,41 @@ pub enum Literal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     // Arithmetic
-    Add,      // +
-    Sub,      // -
-    Mul,      // *
-    Div,      // /
-    Mod,      // %
+    Add, // +
+    Sub, // -
+    Mul, // *
+    Div, // /
+    Mod, // %
 
     // Comparison
-    Eq,       // ==
-    Ne,       // !=
-    Lt,       // <
-    Le,       // <=
-    Gt,       // >
-    Ge,       // >=
+    Eq, // ==
+    Ne, // !=
+    Lt, // <
+    Le, // <=
+    Gt, // >
+    Ge, // >=
 
     // Logical
-    And,      // and
-    Or,       // or
+    And, // and
+    Or,  // or
 
     // Alternative (for //= update operator)
-    Alternative,  // //
+    Alternative, // //
 }
 
 impl BinaryOp {
     /// Get precedence (higher = binds tighter)
     pub fn precedence(&self) -> u8 {
         match self {
-            BinaryOp::Alternative => 0,  // Lowest precedence
+            BinaryOp::Alternative => 0, // Lowest precedence
             BinaryOp::Or => 1,
             BinaryOp::And => 2,
-            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => 3,
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => 3,
             BinaryOp::Add | BinaryOp::Sub => 4,
             BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => 5,
         }

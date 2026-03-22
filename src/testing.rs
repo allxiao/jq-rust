@@ -3,7 +3,6 @@
 //! Parses the jq test file format (jq.test, base64.test, etc.)
 //! and runs tests against our interpreter.
 
-
 use crate::jv::{parse_json, print_jv_with_options, JvPrintOptions};
 use crate::{interpret, parse, Jv};
 
@@ -126,7 +125,9 @@ pub fn parse_test_file(content: &str) -> Vec<TestCase> {
 pub fn run_test_case(tc: &TestCase) -> TestOutcome {
     match tc {
         TestCase::ShouldFail {
-            filter, check_msg: _, ..
+            filter,
+            check_msg: _,
+            ..
         } => {
             // Try to compile the filter - it should fail
             match parse(filter) {
@@ -188,7 +189,10 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
             for result in results {
                 if actual_outputs.len() >= MAX_OUTPUTS {
                     return TestOutcome::Error {
-                        reason: format!("Too many outputs (>{}) - possible infinite loop", MAX_OUTPUTS),
+                        reason: format!(
+                            "Too many outputs (>{}) - possible infinite loop",
+                            MAX_OUTPUTS
+                        ),
                     };
                 }
                 match result {
@@ -218,8 +222,10 @@ pub fn run_test_case(tc: &TestCase) -> TestOutcome {
                 };
             }
 
-            for (i, (expected, actual)) in
-                expected_outputs.iter().zip(actual_outputs.iter()).enumerate()
+            for (i, (expected, actual)) in expected_outputs
+                .iter()
+                .zip(actual_outputs.iter())
+                .enumerate()
             {
                 // Normalize both by parsing and re-formatting, to handle whitespace differences
                 let normalized_expected = normalize_json(expected);

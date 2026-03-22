@@ -1,6 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use jq_rust::{parse, interpret, Jv};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use jq_rust::jv::parse_json;
+use jq_rust::{interpret, parse, Jv};
 
 fn parse_and_run(filter: &str, input: &str) -> Vec<Result<Jv, String>> {
     let ast = parse(filter).unwrap();
@@ -51,7 +51,13 @@ fn benchmark_object_construction(c: &mut Criterion) {
 }
 
 fn benchmark_large_array(c: &mut Criterion) {
-    let input: String = format!("[{}]", (0..1000).map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+    let input: String = format!(
+        "[{}]",
+        (0..1000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
 
     let mut group = c.benchmark_group("large_array");
 
@@ -77,9 +83,7 @@ fn benchmark_large_array(c: &mut Criterion) {
 fn benchmark_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("parsing");
 
-    group.bench_function("parse_simple", |b| {
-        b.iter(|| parse(black_box(".")))
-    });
+    group.bench_function("parse_simple", |b| b.iter(|| parse(black_box("."))));
 
     group.bench_function("parse_complex", |b| {
         b.iter(|| parse(black_box("[.[] | select(.a > 5) | {x: .a, y: .b}]")))
@@ -97,9 +101,11 @@ fn benchmark_parsing(c: &mut Criterion) {
             .join(",")
     );
 
-    group.bench_with_input(BenchmarkId::new("json_parse_large", 100), &large_json, |b, json| {
-        b.iter(|| parse_json(black_box(json)))
-    });
+    group.bench_with_input(
+        BenchmarkId::new("json_parse_large", 100),
+        &large_json,
+        |b, json| b.iter(|| parse_json(black_box(json))),
+    );
 
     group.finish();
 }

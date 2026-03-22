@@ -2,11 +2,11 @@
 //!
 //! JSON arrays with copy-on-write semantics.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use super::Jv;
 
@@ -62,11 +62,7 @@ impl JvArray {
         let arr = self.inner.borrow();
         let len = arr.len() as i64;
 
-        let idx = if index < 0 {
-            len + index
-        } else {
-            index
-        };
+        let idx = if index < 0 { len + index } else { index };
 
         if idx >= 0 && idx < len {
             Some(arr[idx as usize].clone())
@@ -234,11 +230,7 @@ impl JvArray {
         let mut arr = self.inner.borrow_mut();
         let len = arr.len() as i64;
 
-        let idx = if index < 0 {
-            len + index
-        } else {
-            index
-        };
+        let idx = if index < 0 { len + index } else { index };
 
         if idx >= 0 && idx < len {
             arr.remove(idx as usize);
@@ -367,11 +359,7 @@ mod tests {
 
     #[test]
     fn test_reverse() {
-        let arr = JvArray::from_vec(vec![
-            Jv::from_i64(1),
-            Jv::from_i64(2),
-            Jv::from_i64(3),
-        ]);
+        let arr = JvArray::from_vec(vec![Jv::from_i64(1), Jv::from_i64(2), Jv::from_i64(3)]);
         let rev = arr.reverse();
 
         assert_eq!(rev.get(0), Some(Jv::from_i64(3)));

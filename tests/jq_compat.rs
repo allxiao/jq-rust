@@ -3,8 +3,8 @@
 //! Runs the official jq test suite and asserts a minimum pass count
 //! to prevent regressions.
 
-use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 use jq_rust::set_module_search_path;
+use jq_rust::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
 use std::path::PathBuf;
 
 /// Minimum number of tests that must pass (updated as we fix more)
@@ -55,15 +55,31 @@ fn run_test_suite() -> (usize, usize, usize) {
 
     for tc in test_cases.iter() {
         let (filter, line_number) = match tc {
-            TestCase::Normal { filter, line_number, .. } => (filter.clone(), *line_number),
-            TestCase::ShouldFail { filter, line_number, .. } => (filter.clone(), *line_number),
+            TestCase::Normal {
+                filter,
+                line_number,
+                ..
+            } => (filter.clone(), *line_number),
+            TestCase::ShouldFail {
+                filter,
+                line_number,
+                ..
+            } => (filter.clone(), *line_number),
         };
 
         match run_test_case(tc) {
             TestOutcome::Pass => pass_count += 1,
-            TestOutcome::Fail { reason, expected, actual } => {
+            TestOutcome::Fail {
+                reason,
+                expected,
+                actual,
+            } => {
                 fail_count += 1;
-                failures.push((line_number, filter.clone(), format!("{}: expected {:?}, got {:?}", reason, expected, actual)));
+                failures.push((
+                    line_number,
+                    filter.clone(),
+                    format!("{}: expected {:?}, got {:?}", reason, expected, actual),
+                ));
             }
             TestOutcome::Error { reason, .. } => {
                 error_count += 1;
@@ -78,7 +94,12 @@ fn run_test_suite() -> (usize, usize, usize) {
     if !errors.is_empty() {
         eprintln!("\n=== ERRORS (parse/compile failures) ===");
         for (line, filter, reason) in errors.iter().take(20) {
-            eprintln!("  Line {}: {} -> {}", line, &filter[..filter.len().min(40)], reason);
+            eprintln!(
+                "  Line {}: {} -> {}",
+                line,
+                &filter[..filter.len().min(40)],
+                reason
+            );
         }
         if errors.len() > 20 {
             eprintln!("  ... and {} more errors", errors.len() - 20);
@@ -89,7 +110,12 @@ fn run_test_suite() -> (usize, usize, usize) {
     if !failures.is_empty() {
         eprintln!("\n=== FAILURES (wrong output) ===");
         for (line, filter, reason) in failures.iter().take(20) {
-            eprintln!("  Line {}: {} -> {}", line, &filter[..filter.len().min(40)], &reason[..reason.len().min(100)]);
+            eprintln!(
+                "  Line {}: {} -> {}",
+                line,
+                &filter[..filter.len().min(40)],
+                &reason[..reason.len().min(100)]
+            );
         }
         if failures.len() > 20 {
             eprintln!("  ... and {} more failures", failures.len() - 20);

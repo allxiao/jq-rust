@@ -37,7 +37,9 @@ impl CompiledRegex {
     pub fn is_match(&self, text: &str) -> Result<bool, String> {
         match self {
             CompiledRegex::Standard(re) => Ok(re.is_match(text)),
-            CompiledRegex::Fancy(re) => re.is_match(text).map_err(|e| format!("regex error: {}", e)),
+            CompiledRegex::Fancy(re) => {
+                re.is_match(text).map_err(|e| format!("regex error: {}", e))
+            }
         }
     }
 
@@ -168,7 +170,9 @@ impl CompiledRegex {
     /// Get the capture group names
     pub fn capture_names(&self) -> Vec<Option<String>> {
         match self {
-            CompiledRegex::Standard(re) => re.capture_names().map(|n| n.map(String::from)).collect(),
+            CompiledRegex::Standard(re) => {
+                re.capture_names().map(|n| n.map(String::from)).collect()
+            }
             CompiledRegex::Fancy(re) => re.capture_names().map(|n| n.map(String::from)).collect(),
         }
     }

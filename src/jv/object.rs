@@ -2,12 +2,12 @@
 //!
 //! JSON objects with ordered keys and copy-on-write semantics.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use super::Jv;
 
@@ -102,14 +102,15 @@ impl JvObject {
     /// Get all values
     pub fn values(&self) -> impl Iterator<Item = Jv> + '_ {
         let keys: Vec<String> = self.inner.borrow().keys().cloned().collect();
-        keys.into_iter().map(move |k| {
-            self.inner.borrow().get(&k).cloned().unwrap_or(Jv::Null)
-        })
+        keys.into_iter()
+            .map(move |k| self.inner.borrow().get(&k).cloned().unwrap_or(Jv::Null))
     }
 
     /// Iterate over key-value pairs
     pub fn iter(&self) -> impl Iterator<Item = (String, Jv)> + '_ {
-        let pairs: Vec<(String, Jv)> = self.inner.borrow()
+        let pairs: Vec<(String, Jv)> = self
+            .inner
+            .borrow()
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
@@ -147,7 +148,8 @@ impl JvObject {
 
     /// Convert to entries array: [{key, value}, ...]
     pub fn to_entries(&self) -> Vec<Jv> {
-        self.inner.borrow()
+        self.inner
+            .borrow()
             .iter()
             .map(|(k, v)| {
                 let mut entry = JvObject::new();
@@ -165,14 +167,13 @@ impl JvObject {
         for entry in entries {
             if let Jv::Object(e) = entry {
                 // jq accepts "key", "name", or "k" for the key
-                let key = e.get("key")
+                let key = e
+                    .get("key")
                     .or_else(|| e.get("name"))
                     .or_else(|| e.get("k"))?;
 
                 // jq accepts "value" or "v" for the value
-                let value = e.get("value")
-                    .or_else(|| e.get("v"))
-                    .unwrap_or(Jv::Null);
+                let value = e.get("value").or_else(|| e.get("v")).unwrap_or(Jv::Null);
 
                 if let Jv::String(k) = key {
                     obj.set(k.as_str(), value);

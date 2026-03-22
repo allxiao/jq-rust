@@ -1,11 +1,13 @@
 //! AST-walking interpreter for jq expressions
 
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
+use super::context::{Binding, Context};
 use crate::jv::{Jv, JvObject};
-use crate::parser::{Expr, ExprKind, Literal, BinaryOp, ObjectKey, StringPart, FuncDef, Pattern, PatternKind};
-use super::context::{Context, Binding};
+use crate::parser::{
+    BinaryOp, Expr, ExprKind, FuncDef, Literal, ObjectKey, Pattern, PatternKind, StringPart,
+};
 
 /// Result of evaluating an expression - can produce multiple values
 pub type EvalResult = Box<dyn Iterator<Item = Result<Jv, String>>>;
@@ -70,7 +72,11 @@ fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Result<Jv, String> {
                 // Handle negative indices
                 let actual_idx = if idx < 0 {
                     let adj = len as i64 + idx;
-                    if adj < 0 { 0usize } else { adj as usize }
+                    if adj < 0 {
+                        0usize
+                    } else {
+                        adj as usize
+                    }
                 } else {
                     idx as usize
                 };
@@ -114,30 +120,26 @@ fn set_value_at_path(input: Jv, path: &[Jv], value: Jv) -> Result<Jv, String> {
             }
         }
         // Error cases: type mismatch between path component and data structure
-        (Jv::Number(_), Jv::Number(n)) => {
-            Err(format!("Cannot index number with number ({})", n))
-        }
-        (Jv::Number(_), Jv::String(s)) => {
-            Err(format!("Cannot index number with string (\"{}\")", s.as_str()))
-        }
-        (Jv::Object(_), Jv::Number(n)) => {
-            Err(format!("Cannot index object with number ({})", n))
-        }
-        (Jv::Array(_), Jv::String(s)) => {
-            Err(format!("Cannot index array with string (\"{}\")", s.as_str()))
-        }
-        (Jv::String(_), Jv::Number(n)) => {
-            Err(format!("Cannot index string with number ({})", n))
-        }
-        (Jv::String(_), Jv::String(s)) => {
-            Err(format!("Cannot index string with string (\"{}\")", s.as_str()))
-        }
-        (Jv::Bool(_), Jv::Number(n)) => {
-            Err(format!("Cannot index boolean with number ({})", n))
-        }
-        (Jv::Bool(_), Jv::String(s)) => {
-            Err(format!("Cannot index boolean with string (\"{}\")", s.as_str()))
-        }
+        (Jv::Number(_), Jv::Number(n)) => Err(format!("Cannot index number with number ({})", n)),
+        (Jv::Number(_), Jv::String(s)) => Err(format!(
+            "Cannot index number with string (\"{}\")",
+            s.as_str()
+        )),
+        (Jv::Object(_), Jv::Number(n)) => Err(format!("Cannot index object with number ({})", n)),
+        (Jv::Array(_), Jv::String(s)) => Err(format!(
+            "Cannot index array with string (\"{}\")",
+            s.as_str()
+        )),
+        (Jv::String(_), Jv::Number(n)) => Err(format!("Cannot index string with number ({})", n)),
+        (Jv::String(_), Jv::String(s)) => Err(format!(
+            "Cannot index string with string (\"{}\")",
+            s.as_str()
+        )),
+        (Jv::Bool(_), Jv::Number(n)) => Err(format!("Cannot index boolean with number ({})", n)),
+        (Jv::Bool(_), Jv::String(s)) => Err(format!(
+            "Cannot index boolean with string (\"{}\")",
+            s.as_str()
+        )),
         _ => Ok(input),
     }
 }
@@ -169,9 +171,7 @@ impl Interpreter {
 
     fn eval_expr(&mut self, expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         match &expr.kind {
-            ExprKind::Identity => {
-                Box::new(std::iter::once(Ok(input)))
-            }
+            ExprKind::Identity => Box::new(std::iter::once(Ok(input))),
 
             ExprKind::RecursiveDescent => {
                 // .. is equivalent to recurse
@@ -202,7 +202,11 @@ impl Interpreter {
                 }
             }
 
-            ExprKind::Index { expr: base, index, optional } => {
+            ExprKind::Index {
+                expr: base,
+                index,
+                optional,
+            } => {
                 let optional = *optional;
                 let index_expr = index.clone();
                 let base_expr = base.clone();
@@ -224,15 +228,21 @@ impl Interpreter {
                             }
                         }
                         Ok(base_val) => {
-                            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                            let mut inner = Interpreter {
+                                ctx: ctx_clone.clone(),
+                            };
                             // Evaluate index expression with original input, not base_val
-                            let index_results = inner.eval_expr(&index_expr, original_input.clone(), ctx_clone.clone());
+                            let index_results = inner.eval_expr(
+                                &index_expr,
+                                original_input.clone(),
+                                ctx_clone.clone(),
+                            );
 
                             let base_val_for_index = base_val;
                             let optional_inner = optional;
 
-                            Box::new(index_results.filter_map(move |idx_result| {
-                                match idx_result {
+                            Box::new(
+                                index_results.filter_map(move |idx_result| match idx_result {
                                     Err(e) => {
                                         if optional_inner {
                                             None
@@ -247,7 +257,9 @@ impl Interpreter {
                                                 None
                                             } else {
                                                 let idx_desc = match &idx_val {
-                                                    Jv::String(s) => format!("string (\"{}\")", s.as_str()),
+                                                    Jv::String(s) => {
+                                                        format!("string (\"{}\")", s.as_str())
+                                                    }
                                                     Jv::Number(n) => format!("number ({})", n),
                                                     _ => idx_val.type_name().to_string(),
                                                 };
@@ -261,14 +273,19 @@ impl Interpreter {
                                             Some(Ok(result))
                                         }
                                     }
-                                }
-                            })) as EvalResult
+                                }),
+                            ) as EvalResult
                         }
                     }
                 }))
             }
 
-            ExprKind::Slice { expr: base, start, end, optional } => {
+            ExprKind::Slice {
+                expr: base,
+                start,
+                end,
+                optional,
+            } => {
                 let optional = *optional;
                 let base_expr = base.clone();
                 let start_expr = start.clone();
@@ -321,8 +338,11 @@ impl Interpreter {
                         Ok(base_val) => {
                             // Evaluate start index with original input
                             let start_val = if let Some(ref s) = start_expr {
-                                let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                let mut results = inner.eval_expr(s, original_input.clone(), ctx_clone.clone());
+                                let mut inner = Interpreter {
+                                    ctx: ctx_clone.clone(),
+                                };
+                                let mut results =
+                                    inner.eval_expr(s, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
                                     Some(Ok(v)) => number_to_start_index(&v),
                                     _ => None,
@@ -333,8 +353,11 @@ impl Interpreter {
 
                             // Evaluate end index with original input
                             let end_val = if let Some(ref e) = end_expr {
-                                let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                let mut results = inner.eval_expr(e, original_input.clone(), ctx_clone.clone());
+                                let mut inner = Interpreter {
+                                    ctx: ctx_clone.clone(),
+                                };
+                                let mut results =
+                                    inner.eval_expr(e, original_input.clone(), ctx_clone.clone());
                                 match results.next() {
                                     Some(Ok(v)) => number_to_end_index(&v),
                                     _ => None,
@@ -376,7 +399,10 @@ impl Interpreter {
                 }))
             }
 
-            ExprKind::Iterator { expr: base, optional } => {
+            ExprKind::Iterator {
+                expr: base,
+                optional,
+            } => {
                 let optional = *optional;
                 let base_expr = base.clone();
                 let ctx_clone = ctx.clone();
@@ -384,30 +410,26 @@ impl Interpreter {
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let base_results = this.eval_expr(&base_expr, input, ctx_clone);
 
-                Box::new(base_results.flat_map(move |base_result| {
-                    match base_result {
-                        Err(e) if !optional => Box::new(std::iter::once(Err(e))) as EvalResult,
-                        Err(_) => Box::new(std::iter::empty()),
-                        Ok(base_val) => {
-                            match &base_val {
-                                Jv::Array(arr) => {
-                                    let items: Vec<_> = arr.iter().collect();
-                                    Box::new(items.into_iter().map(Ok)) as EvalResult
-                                }
-                                Jv::Object(obj) => {
-                                    let items: Vec<_> = obj.values().collect();
-                                    Box::new(items.into_iter().map(Ok)) as EvalResult
-                                }
-                                Jv::Null if optional => Box::new(std::iter::empty()) as EvalResult,
-                                _ if optional => Box::new(std::iter::empty()) as EvalResult,
-                                _ => Box::new(std::iter::once(Err(format!(
-                                    "Cannot iterate over {} ({})",
-                                    base_val.type_name(),
-                                    base_val
-                                )))) as EvalResult,
-                            }
+                Box::new(base_results.flat_map(move |base_result| match base_result {
+                    Err(e) if !optional => Box::new(std::iter::once(Err(e))) as EvalResult,
+                    Err(_) => Box::new(std::iter::empty()),
+                    Ok(base_val) => match &base_val {
+                        Jv::Array(arr) => {
+                            let items: Vec<_> = arr.iter().collect();
+                            Box::new(items.into_iter().map(Ok)) as EvalResult
                         }
-                    }
+                        Jv::Object(obj) => {
+                            let items: Vec<_> = obj.values().collect();
+                            Box::new(items.into_iter().map(Ok)) as EvalResult
+                        }
+                        Jv::Null if optional => Box::new(std::iter::empty()) as EvalResult,
+                        _ if optional => Box::new(std::iter::empty()) as EvalResult,
+                        _ => Box::new(std::iter::once(Err(format!(
+                            "Cannot iterate over {} ({})",
+                            base_val.type_name(),
+                            base_val
+                        )))) as EvalResult,
+                    },
                 }))
             }
 
@@ -418,13 +440,13 @@ impl Interpreter {
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let left_results = this.eval_expr(left, input, ctx_clone.clone());
 
-                Box::new(left_results.flat_map(move |left_result| {
-                    match left_result {
-                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                        Ok(left_val) => {
-                            let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                            inner.eval_expr(&right_expr, left_val, ctx_clone.clone())
-                        }
+                Box::new(left_results.flat_map(move |left_result| match left_result {
+                    Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                    Ok(left_val) => {
+                        let mut inner = Interpreter {
+                            ctx: ctx_clone.clone(),
+                        };
+                        inner.eval_expr(&right_expr, left_val, ctx_clone.clone())
                     }
                 }))
             }
@@ -466,8 +488,14 @@ impl Interpreter {
 
                         // Left exhausted, try right
                         if self.right.is_none() {
-                            let mut inner = Interpreter { ctx: self.ctx.clone() };
-                            self.right = Some(inner.eval_expr(&self.right_expr, self.input.clone(), self.ctx.clone()));
+                            let mut inner = Interpreter {
+                                ctx: self.ctx.clone(),
+                            };
+                            self.right = Some(inner.eval_expr(
+                                &self.right_expr,
+                                self.input.clone(),
+                                self.ctx.clone(),
+                            ));
                         }
 
                         if let Some(ref mut right_iter) = self.right {
@@ -493,20 +521,28 @@ impl Interpreter {
                 })
             }
 
-            ExprKind::Conditional { condition, then_branch, else_branch } => {
+            ExprKind::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let condition_expr = condition.clone();
                 let then_expr = then_branch.clone();
                 let else_expr = else_branch.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let cond_results: Vec<_> = this.eval_expr(&condition_expr, input.clone(), ctx_clone.clone()).collect();
+                let cond_results: Vec<_> = this
+                    .eval_expr(&condition_expr, input.clone(), ctx_clone.clone())
+                    .collect();
 
                 Box::new(cond_results.into_iter().flat_map(move |cond_result| {
                     match cond_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Ok(v) => {
-                            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                            let mut inner = Interpreter {
+                                ctx: ctx_clone.clone(),
+                            };
                             if v.is_truthy() {
                                 inner.eval_expr(&then_expr, input.clone(), ctx_clone.clone())
                             } else if let Some(ref else_e) = else_expr {
@@ -520,7 +556,10 @@ impl Interpreter {
                 }))
             }
 
-            ExprKind::TryCatch { expr: try_expr, catch } => {
+            ExprKind::TryCatch {
+                expr: try_expr,
+                catch,
+            } => {
                 let catch_expr = catch.clone();
                 let ctx_clone = ctx.clone();
 
@@ -554,16 +593,24 @@ impl Interpreter {
 
                                 if let Some(ref catch_e) = self.catch_expr {
                                     // Convert error string to Jv input for catch handler
-                                    let err_input = if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
-                                        let json_str = &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
-                                        crate::jv::parse_json(json_str).unwrap_or_else(|_| Jv::string(&e))
-                                    } else {
-                                        Jv::string(&e)
+                                    let err_input =
+                                        if e.starts_with(crate::vm::context::JSON_ERROR_PREFIX) {
+                                            let json_str =
+                                                &e[crate::vm::context::JSON_ERROR_PREFIX.len()..];
+                                            crate::jv::parse_json(json_str)
+                                                .unwrap_or_else(|_| Jv::string(&e))
+                                        } else {
+                                            Jv::string(&e)
+                                        };
+                                    let mut inner = Interpreter {
+                                        ctx: self.ctx.clone(),
                                     };
-                                    let mut inner = Interpreter { ctx: self.ctx.clone() };
                                     // Evaluate catch handler and return first result
                                     // Note: catch handler may produce multiple values
-                                    match inner.eval_expr(catch_e, err_input, self.ctx.clone()).next() {
+                                    match inner
+                                        .eval_expr(catch_e, err_input, self.ctx.clone())
+                                        .next()
+                                    {
                                         Some(result) => Some(result),
                                         None => self.next(), // catch produced empty, continue
                                     }
@@ -599,50 +646,80 @@ impl Interpreter {
                     BinaryOp::And => {
                         // left and right: if left is falsy, return false without evaluating right
                         let mut this = Interpreter { ctx: ctx.clone() };
-                        return Box::new(this.eval_expr(&left_expr, input, ctx_clone.clone()).flat_map(move |left_result| {
-                            match left_result {
-                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                                Ok(left_val) => {
-                                    if !left_val.is_truthy() {
-                                        // Short-circuit: return false without evaluating right
-                                        Box::new(std::iter::once(Ok(Jv::Bool(false)))) as EvalResult
-                                    } else {
-                                        // Evaluate right side
-                                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                        Box::new(inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone()).map(|right_result| {
-                                            match right_result {
-                                                Err(e) => Err(e),
-                                                Ok(right_val) => Ok(Jv::Bool(right_val.is_truthy())),
+                        return Box::new(
+                            this.eval_expr(&left_expr, input, ctx_clone.clone())
+                                .flat_map(move |left_result| {
+                                    match left_result {
+                                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                                        Ok(left_val) => {
+                                            if !left_val.is_truthy() {
+                                                // Short-circuit: return false without evaluating right
+                                                Box::new(std::iter::once(Ok(Jv::Bool(false))))
+                                                    as EvalResult
+                                            } else {
+                                                // Evaluate right side
+                                                let mut inner = Interpreter {
+                                                    ctx: ctx_clone.clone(),
+                                                };
+                                                Box::new(
+                                                    inner
+                                                        .eval_expr(
+                                                            &right_expr,
+                                                            input_clone.clone(),
+                                                            ctx_clone.clone(),
+                                                        )
+                                                        .map(|right_result| match right_result {
+                                                            Err(e) => Err(e),
+                                                            Ok(right_val) => {
+                                                                Ok(Jv::Bool(right_val.is_truthy()))
+                                                            }
+                                                        }),
+                                                )
+                                                    as EvalResult
                                             }
-                                        })) as EvalResult
+                                        }
                                     }
-                                }
-                            }
-                        }));
+                                }),
+                        );
                     }
                     BinaryOp::Or => {
                         // left or right: if left is truthy, return true without evaluating right
                         let mut this = Interpreter { ctx: ctx.clone() };
-                        return Box::new(this.eval_expr(&left_expr, input, ctx_clone.clone()).flat_map(move |left_result| {
-                            match left_result {
-                                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                                Ok(left_val) => {
-                                    if left_val.is_truthy() {
-                                        // Short-circuit: return true without evaluating right
-                                        Box::new(std::iter::once(Ok(Jv::Bool(true)))) as EvalResult
-                                    } else {
-                                        // Evaluate right side
-                                        let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                                        Box::new(inner.eval_expr(&right_expr, input_clone.clone(), ctx_clone.clone()).map(|right_result| {
-                                            match right_result {
-                                                Err(e) => Err(e),
-                                                Ok(right_val) => Ok(Jv::Bool(right_val.is_truthy())),
+                        return Box::new(
+                            this.eval_expr(&left_expr, input, ctx_clone.clone())
+                                .flat_map(move |left_result| {
+                                    match left_result {
+                                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                                        Ok(left_val) => {
+                                            if left_val.is_truthy() {
+                                                // Short-circuit: return true without evaluating right
+                                                Box::new(std::iter::once(Ok(Jv::Bool(true))))
+                                                    as EvalResult
+                                            } else {
+                                                // Evaluate right side
+                                                let mut inner = Interpreter {
+                                                    ctx: ctx_clone.clone(),
+                                                };
+                                                Box::new(
+                                                    inner
+                                                        .eval_expr(
+                                                            &right_expr,
+                                                            input_clone.clone(),
+                                                            ctx_clone.clone(),
+                                                        )
+                                                        .map(|right_result| match right_result {
+                                                            Err(e) => Err(e),
+                                                            Ok(right_val) => {
+                                                                Ok(Jv::Bool(right_val.is_truthy()))
+                                                            }
+                                                        }),
+                                                )
+                                                    as EvalResult
                                             }
-                                        })) as EvalResult
+                                        }
                                     }
-                                }
-                            }
-                        }));
+                                }),
+                        );
                     }
                     _ => {}
                 }
@@ -652,22 +729,23 @@ impl Interpreter {
                 let right_results = this.eval_expr(right, input, ctx_clone.clone());
 
                 // jq semantics: for each right value, iterate over all left values
-                Box::new(right_results.flat_map(move |right_result| {
-                    match right_result {
+                Box::new(
+                    right_results.flat_map(move |right_result| match right_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Ok(right_val) => {
-                            let mut inner = Interpreter { ctx: ctx_clone.clone() };
-                            let left_results = inner.eval_expr(&left_expr, input_clone.clone(), ctx_clone.clone());
+                            let mut inner = Interpreter {
+                                ctx: ctx_clone.clone(),
+                            };
+                            let left_results =
+                                inner.eval_expr(&left_expr, input_clone.clone(), ctx_clone.clone());
 
-                            Box::new(left_results.map(move |left_result| {
-                                match left_result {
-                                    Err(e) => Err(e),
-                                    Ok(left_val) => eval_binary_op(op, &left_val, &right_val),
-                                }
+                            Box::new(left_results.map(move |left_result| match left_result {
+                                Err(e) => Err(e),
+                                Ok(left_val) => eval_binary_op(op, &left_val, &right_val),
                             })) as EvalResult
                         }
-                    }
-                }))
+                    }),
+                )
             }
 
             ExprKind::Negate(inner) => {
@@ -701,34 +779,28 @@ impl Interpreter {
                 let mut this = Interpreter { ctx: ctx.clone() };
                 let results = this.eval_expr(&inner_expr, input, ctx_clone);
 
-                Box::new(results.filter_map(|result| {
-                    match result {
-                        Ok(v) => Some(Ok(v)),
-                        Err(_) => None,
-                    }
+                Box::new(results.filter_map(|result| match result {
+                    Ok(v) => Some(Ok(v)),
+                    Err(_) => None,
                 }))
             }
 
-            ExprKind::Array(inner) => {
-                match inner {
-                    None => Box::new(std::iter::once(Ok(Jv::array()))),
-                    Some(inner_expr) => {
-                        let ctx_clone = ctx.clone();
-                        let mut this = Interpreter { ctx: ctx.clone() };
-                        let results: Result<Vec<_>, _> = this.eval_expr(inner_expr, input, ctx_clone)
-                            .collect();
+            ExprKind::Array(inner) => match inner {
+                None => Box::new(std::iter::once(Ok(Jv::array()))),
+                Some(inner_expr) => {
+                    let ctx_clone = ctx.clone();
+                    let mut this = Interpreter { ctx: ctx.clone() };
+                    let results: Result<Vec<_>, _> =
+                        this.eval_expr(inner_expr, input, ctx_clone).collect();
 
-                        match results {
-                            Ok(values) => Box::new(std::iter::once(Ok(Jv::from_vec(values)))),
-                            Err(e) => Box::new(std::iter::once(Err(e))),
-                        }
+                    match results {
+                        Ok(values) => Box::new(std::iter::once(Ok(Jv::from_vec(values)))),
+                        Err(e) => Box::new(std::iter::once(Err(e))),
                     }
                 }
-            }
+            },
 
-            ExprKind::Object(entries) => {
-                self.eval_object(entries, input, ctx)
-            }
+            ExprKind::Object(entries) => self.eval_object(entries, input, ctx),
 
             ExprKind::FunctionCall { module, name, args } => {
                 self.eval_function_call(module.as_deref(), name, args, input, ctx)
@@ -741,11 +813,18 @@ impl Interpreter {
                 }
                 match ctx.borrow().lookup_value(name) {
                     Some(v) => Box::new(std::iter::once(Ok(v))),
-                    None => Box::new(std::iter::once(Err(format!("variable ${} is not defined", name)))),
+                    None => Box::new(std::iter::once(Err(format!(
+                        "variable ${} is not defined",
+                        name
+                    )))),
                 }
             }
 
-            ExprKind::Binding { expr: bind_expr, pattern, body } => {
+            ExprKind::Binding {
+                expr: bind_expr,
+                pattern,
+                body,
+            } => {
                 let body_expr = body.clone();
                 let pattern = pattern.clone();
                 let ctx_clone = ctx.clone();
@@ -770,7 +849,8 @@ impl Interpreter {
                                 Interpreter::collect_pattern_vars(second, &mut all_vars);
 
                                 // Create child context
-                                let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+                                let child_ctx =
+                                    Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
 
                                 // Pre-bind all variables to null
                                 for var in &all_vars {
@@ -778,8 +858,11 @@ impl Interpreter {
                                 }
 
                                 // Try first pattern
-                                let mut inner = Interpreter { ctx: child_ctx.clone() };
-                                let first_bindings = inner.try_bind_pattern(first, &bind_val, &child_ctx);
+                                let mut inner = Interpreter {
+                                    ctx: child_ctx.clone(),
+                                };
+                                let first_bindings =
+                                    inner.try_bind_pattern(first, &bind_val, &child_ctx);
 
                                 if let Ok(binds) = first_bindings {
                                     // First pattern matched - commit bindings and try body
@@ -788,15 +871,26 @@ impl Interpreter {
                                     }
 
                                     // Evaluate body and collect results
-                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
-                                    let results: Vec<_> = inner.eval_expr(&body_expr, input_clone.clone(), child_ctx.clone()).collect();
+                                    let mut inner = Interpreter {
+                                        ctx: child_ctx.clone(),
+                                    };
+                                    let results: Vec<_> = inner
+                                        .eval_expr(
+                                            &body_expr,
+                                            input_clone.clone(),
+                                            child_ctx.clone(),
+                                        )
+                                        .collect();
 
                                     // Check if all results are errors
-                                    let all_errors = !results.is_empty() && results.iter().all(|r| r.is_err());
+                                    let all_errors =
+                                        !results.is_empty() && results.iter().all(|r| r.is_err());
 
                                     if all_errors {
                                         // Body errored - try second pattern
-                                        let child_ctx2 = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+                                        let child_ctx2 = Rc::new(RefCell::new(Context::child(
+                                            ctx_clone.clone(),
+                                        )));
 
                                         // Pre-bind all variables to null again
                                         for var in &all_vars {
@@ -804,54 +898,94 @@ impl Interpreter {
                                         }
 
                                         // Bind second pattern
-                                        let mut inner2 = Interpreter { ctx: child_ctx2.clone() };
-                                        if let Err(e) = inner2.bind_pattern(second, &bind_val, &child_ctx2) {
+                                        let mut inner2 = Interpreter {
+                                            ctx: child_ctx2.clone(),
+                                        };
+                                        if let Err(e) =
+                                            inner2.bind_pattern(second, &bind_val, &child_ctx2)
+                                        {
                                             return Box::new(std::iter::once(Err(e))) as EvalResult;
                                         }
 
                                         // Evaluate body with second pattern bindings
-                                        let mut inner2 = Interpreter { ctx: child_ctx2.clone() };
-                                        return inner2.eval_expr(&body_expr, input_clone.clone(), child_ctx2);
+                                        let mut inner2 = Interpreter {
+                                            ctx: child_ctx2.clone(),
+                                        };
+                                        return inner2.eval_expr(
+                                            &body_expr,
+                                            input_clone.clone(),
+                                            child_ctx2,
+                                        );
                                     }
 
                                     // Return the collected results
                                     return Box::new(results.into_iter()) as EvalResult;
                                 } else {
                                     // First pattern failed - try second pattern
-                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
-                                    if let Err(e) = inner.bind_pattern(second, &bind_val, &child_ctx) {
+                                    let mut inner = Interpreter {
+                                        ctx: child_ctx.clone(),
+                                    };
+                                    if let Err(e) =
+                                        inner.bind_pattern(second, &bind_val, &child_ctx)
+                                    {
                                         return Box::new(std::iter::once(Err(e))) as EvalResult;
                                     }
 
-                                    let mut inner = Interpreter { ctx: child_ctx.clone() };
-                                    return inner.eval_expr(&body_expr, input_clone.clone(), child_ctx);
+                                    let mut inner = Interpreter {
+                                        ctx: child_ctx.clone(),
+                                    };
+                                    return inner.eval_expr(
+                                        &body_expr,
+                                        input_clone.clone(),
+                                        child_ctx,
+                                    );
                                 }
                             }
 
                             // Regular pattern (non-alternative)
                             // Create child context with bindings from pattern
-                            let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
+                            let child_ctx =
+                                Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
 
                             // Try to bind the pattern
-                            let mut inner = Interpreter { ctx: child_ctx.clone() };
+                            let mut inner = Interpreter {
+                                ctx: child_ctx.clone(),
+                            };
                             if let Err(e) = inner.bind_pattern(&pattern, &bind_val, &child_ctx) {
                                 return Box::new(std::iter::once(Err(e))) as EvalResult;
                             }
 
-                            let mut inner = Interpreter { ctx: child_ctx.clone() };
+                            let mut inner = Interpreter {
+                                ctx: child_ctx.clone(),
+                            };
                             inner.eval_expr(&body_expr, input_clone.clone(), child_ctx)
                         }
                     }
                 }))
             }
 
-            ExprKind::Reduce { expr: iter_expr, pattern, init, update } => {
-                self.eval_reduce(iter_expr, pattern, init, update, input, ctx)
-            }
+            ExprKind::Reduce {
+                expr: iter_expr,
+                pattern,
+                init,
+                update,
+            } => self.eval_reduce(iter_expr, pattern, init, update, input, ctx),
 
-            ExprKind::Foreach { expr: iter_expr, pattern, init, update, extract } => {
-                self.eval_foreach(iter_expr, pattern, init, update, extract.as_ref(), input, ctx)
-            }
+            ExprKind::Foreach {
+                expr: iter_expr,
+                pattern,
+                init,
+                update,
+                extract,
+            } => self.eval_foreach(
+                iter_expr,
+                pattern,
+                init,
+                update,
+                extract.as_ref(),
+                input,
+                ctx,
+            ),
 
             ExprKind::Alternative(left, right) => {
                 let right_expr = right.clone();
@@ -864,38 +998,42 @@ impl Interpreter {
                 // Try to get results from left
                 let mut got_result = false;
                 let results: Vec<_> = left_results
-                    .filter_map(|r| {
-                        match r {
-                            Ok(ref v) if !v.is_null() && !matches!(v, Jv::Bool(false)) => {
-                                got_result = true;
-                                Some(r)
-                            }
-                            Ok(_) => None,
-                            Err(_) => None,
+                    .filter_map(|r| match r {
+                        Ok(ref v) if !v.is_null() && !matches!(v, Jv::Bool(false)) => {
+                            got_result = true;
+                            Some(r)
                         }
+                        Ok(_) => None,
+                        Err(_) => None,
                     })
                     .collect();
 
                 if got_result {
                     Box::new(results.into_iter())
                 } else {
-                    let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                    let mut inner = Interpreter {
+                        ctx: ctx_clone.clone(),
+                    };
                     inner.eval_expr(&right_expr, input_clone, ctx_clone)
                 }
             }
 
-            ExprKind::StringInterp(parts) => {
-                self.eval_string_interp(parts, input, ctx)
-            }
+            ExprKind::StringInterp(parts) => self.eval_string_interp(parts, input, ctx),
 
             ExprKind::LocalDef { def, body } => {
                 // Register function in context with closure capturing current context
                 let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
                 // The closure captures the child context (which has parent = ctx)
                 // so that the function can see bindings from when it was defined
-                child_ctx.borrow_mut().bind_function(&def.name, Rc::new(def.clone()), child_ctx.clone());
+                child_ctx.borrow_mut().bind_function(
+                    &def.name,
+                    Rc::new(def.clone()),
+                    child_ctx.clone(),
+                );
 
-                let mut inner = Interpreter { ctx: child_ctx.clone() };
+                let mut inner = Interpreter {
+                    ctx: child_ctx.clone(),
+                };
                 inner.eval_expr(body, input, child_ctx)
             }
 
@@ -925,20 +1063,23 @@ impl Interpreter {
 
                     // Otherwise evaluate the expression and format the result
                     let mut inner = Interpreter { ctx: ctx.clone() };
-                    let results: Vec<_> = inner.eval_expr(inner_expr, input, ctx_clone.clone()).collect();
+                    let results: Vec<_> = inner
+                        .eval_expr(inner_expr, input, ctx_clone.clone())
+                        .collect();
 
-                    Box::new(results.into_iter().flat_map(move |result| {
-                        match result {
-                            Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                            Ok(val) => {
-                                let ctx_mut = ctx_clone.borrow_mut();
-                                if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
-                                    let builtin_fn = *builtin;
-                                    drop(ctx_mut);
-                                    builtin_fn(&mut Context::new(), val, &[])
-                                } else {
-                                    Box::new(std::iter::once(Err(format!("unknown format: {}", format_name))))
-                                }
+                    Box::new(results.into_iter().flat_map(move |result| match result {
+                        Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                        Ok(val) => {
+                            let ctx_mut = ctx_clone.borrow_mut();
+                            if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
+                                let builtin_fn = *builtin;
+                                drop(ctx_mut);
+                                builtin_fn(&mut Context::new(), val, &[])
+                            } else {
+                                Box::new(std::iter::once(Err(format!(
+                                    "unknown format: {}",
+                                    format_name
+                                ))))
                             }
                         }
                     }))
@@ -950,7 +1091,10 @@ impl Interpreter {
                         drop(ctx_mut);
                         builtin_fn(&mut Context::new(), input, &[])
                     } else {
-                        Box::new(std::iter::once(Err(format!("unknown format: {}", format_name))))
+                        Box::new(std::iter::once(Err(format!(
+                            "unknown format: {}",
+                            format_name
+                        ))))
                     }
                 }
             }
@@ -962,7 +1106,9 @@ impl Interpreter {
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let value_results: Vec<_> = this.eval_expr(&value_expr, input.clone(), ctx_clone.clone()).collect();
+                let value_results: Vec<_> = this
+                    .eval_expr(&value_expr, input.clone(), ctx_clone.clone())
+                    .collect();
 
                 Box::new(value_results.into_iter().flat_map(move |value_result| {
                     match value_result {
@@ -1008,16 +1154,26 @@ impl Interpreter {
 
                     return Box::new(std::iter::once((|| {
                         // Get the first value at the first path
-                        let mut get_interp = Interpreter { ctx: ctx_for_closure.clone() };
-                        let current_val = match get_interp.eval_expr(&left, input.clone(), ctx_for_closure.clone()).next() {
+                        let mut get_interp = Interpreter {
+                            ctx: ctx_for_closure.clone(),
+                        };
+                        let current_val = match get_interp
+                            .eval_expr(&left, input.clone(), ctx_for_closure.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => Jv::Null,
                         };
 
                         // Apply the value expression to get the new value
-                        let mut val_interp = Interpreter { ctx: ctx_for_closure.clone() };
-                        let new_value = match val_interp.eval_expr(&value_expr, current_val, ctx_for_closure.clone()).next() {
+                        let mut val_interp = Interpreter {
+                            ctx: ctx_for_closure.clone(),
+                        };
+                        let new_value = match val_interp
+                            .eval_expr(&value_expr, current_val, ctx_for_closure.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => return Ok(input.clone()), // empty produces no output, return input unchanged
@@ -1025,25 +1181,40 @@ impl Interpreter {
 
                         // Apply the value to both paths
                         let mut path_parts: Vec<Jv> = Vec::new();
-                        let result = Self::apply_assignment(input.clone(), &left, new_value.clone(), &mut path_parts, ctx_for_closure.clone())?;
-                        Self::apply_assignment(result, &right, new_value, &mut path_parts, ctx_for_closure)
+                        let result = Self::apply_assignment(
+                            input.clone(),
+                            &left,
+                            new_value.clone(),
+                            &mut path_parts,
+                            ctx_for_closure.clone(),
+                        )?;
+                        Self::apply_assignment(
+                            result,
+                            &right,
+                            new_value,
+                            &mut path_parts,
+                            ctx_for_closure,
+                        )
                     })()));
                 }
 
                 // Special handling for iterator targets like .[] |= f
-                if let ExprKind::Iterator { expr: iter_base, optional: _ } = &effective_target.kind {
-                    return self.apply_update_to_iterator(
-                        input,
-                        iter_base,
-                        &value_expr,
-                        ctx_clone,
-                    );
+                if let ExprKind::Iterator {
+                    expr: iter_base,
+                    optional: _,
+                } = &effective_target.kind
+                {
+                    return self.apply_update_to_iterator(input, iter_base, &value_expr, ctx_clone);
                 }
 
                 // Special handling for (.[] | filter) |= f
                 // This is a path-based update that should update elements where the filter matches
                 if let ExprKind::Pipe(left, right) = &effective_target.kind {
-                    if let ExprKind::Iterator { expr: iter_base, optional: _ } = &left.kind {
+                    if let ExprKind::Iterator {
+                        expr: iter_base,
+                        optional: _,
+                    } = &left.kind
+                    {
                         // (.[] | filter) |= f - for each element, if filter passes, apply f
                         let iter_base_clone = iter_base.clone();
                         let filter_expr = right.clone();
@@ -1055,11 +1226,22 @@ impl Interpreter {
                             let container = if let ExprKind::Identity = iter_base_clone.kind {
                                 input.clone()
                             } else {
-                                let mut interp = Interpreter { ctx: ctx_for_closure.clone() };
-                                match interp.eval_expr(&iter_base_clone, input.clone(), ctx_for_closure.clone()).next() {
+                                let mut interp = Interpreter {
+                                    ctx: ctx_for_closure.clone(),
+                                };
+                                match interp
+                                    .eval_expr(
+                                        &iter_base_clone,
+                                        input.clone(),
+                                        ctx_for_closure.clone(),
+                                    )
+                                    .next()
+                                {
                                     Some(Ok(v)) => v,
                                     Some(Err(e)) => return Err(e),
-                                    None => return Err("iterator base produced no value".to_string()),
+                                    None => {
+                                        return Err("iterator base produced no value".to_string())
+                                    }
                                 }
                             };
 
@@ -1069,14 +1251,31 @@ impl Interpreter {
                                     let mut result = Vec::new();
                                     for elem in arr.iter() {
                                         // Check if element passes the filter
-                                        let mut filter_interp = Interpreter { ctx: ctx_for_closure.clone() };
-                                        let filter_result = filter_interp.eval_expr(&filter_expr, elem.clone(), ctx_for_closure.clone()).next();
+                                        let mut filter_interp = Interpreter {
+                                            ctx: ctx_for_closure.clone(),
+                                        };
+                                        let filter_result = filter_interp
+                                            .eval_expr(
+                                                &filter_expr,
+                                                elem.clone(),
+                                                ctx_for_closure.clone(),
+                                            )
+                                            .next();
 
                                         match filter_result {
                                             Some(Ok(_)) => {
                                                 // Filter matched - apply the value expression
-                                                let mut val_interp = Interpreter { ctx: ctx_for_closure.clone() };
-                                                match val_interp.eval_expr(&value_expr_clone, elem.clone(), ctx_for_closure.clone()).next() {
+                                                let mut val_interp = Interpreter {
+                                                    ctx: ctx_for_closure.clone(),
+                                                };
+                                                match val_interp
+                                                    .eval_expr(
+                                                        &value_expr_clone,
+                                                        elem.clone(),
+                                                        ctx_for_closure.clone(),
+                                                    )
+                                                    .next()
+                                                {
                                                     Some(Ok(v)) => result.push(v),
                                                     Some(Err(e)) => return Err(e),
                                                     None => {
@@ -1098,7 +1297,13 @@ impl Interpreter {
                                         Ok(new_container)
                                     } else {
                                         let mut path_parts: Vec<Jv> = Vec::new();
-                                        Self::apply_assignment(input.clone(), &iter_base_clone, new_container, &mut path_parts, ctx_for_closure)
+                                        Self::apply_assignment(
+                                            input.clone(),
+                                            &iter_base_clone,
+                                            new_container,
+                                            &mut path_parts,
+                                            ctx_for_closure,
+                                        )
                                     }
                                 }
                                 _ => Err(format!("Cannot iterate over {}", container.type_name())),
@@ -1107,7 +1312,11 @@ impl Interpreter {
                     }
 
                     // Also handle .foo[] |= f pattern (Pipe where right is Iterator)
-                    if let ExprKind::Iterator { expr: iter_base, optional: _ } = &right.kind {
+                    if let ExprKind::Iterator {
+                        expr: iter_base,
+                        optional: _,
+                    } = &right.kind
+                    {
                         // .foo[] |= f - navigate to .foo, apply update to its iterator
                         let left_clone = left.clone();
                         let iter_base_clone = iter_base.clone();
@@ -1115,8 +1324,13 @@ impl Interpreter {
                         let ctx_for_closure = ctx_clone.clone();
 
                         return Box::new(std::iter::once((|| {
-                            let mut left_interp = Interpreter { ctx: ctx_for_closure.clone() };
-                            let container = match left_interp.eval_expr(&left_clone, input.clone(), ctx_for_closure.clone()).next() {
+                            let mut left_interp = Interpreter {
+                                ctx: ctx_for_closure.clone(),
+                            };
+                            let container = match left_interp
+                                .eval_expr(&left_clone, input.clone(), ctx_for_closure.clone())
+                                .next()
+                            {
                                 Some(Ok(v)) => v,
                                 Some(Err(e)) => return Err(e),
                                 None => return Err("left side produced no value".to_string()),
@@ -1132,14 +1346,25 @@ impl Interpreter {
 
                             // Set the updated container back
                             let mut path_parts: Vec<Jv> = Vec::new();
-                            Self::apply_assignment(input.clone(), &left_clone, updated_container, &mut path_parts, ctx_for_closure)
+                            Self::apply_assignment(
+                                input.clone(),
+                                &left_clone,
+                                updated_container,
+                                &mut path_parts,
+                                ctx_for_closure,
+                            )
                         })()));
                     }
                 }
 
                 // Special handling for index expressions with generators like .foo[1,4,2,3] |= empty
                 // When the value expression returns empty, we delete those indices
-                if let ExprKind::Index { expr: base_expr, index: idx_expr, optional: _ } = &effective_target.kind {
+                if let ExprKind::Index {
+                    expr: base_expr,
+                    index: idx_expr,
+                    optional: _,
+                } = &effective_target.kind
+                {
                     // Check if index expression might be a generator (contains Comma)
                     if Self::contains_comma(&idx_expr.kind) {
                         return self.apply_update_to_indexed_generator(
@@ -1215,7 +1440,11 @@ impl Interpreter {
                 let ctx_clone = ctx.clone();
 
                 // Special handling for iterator targets like .[] += 2
-                if let ExprKind::Iterator { expr: iter_base, optional: _ } = &target_expr.kind {
+                if let ExprKind::Iterator {
+                    expr: iter_base,
+                    optional: _,
+                } = &target_expr.kind
+                {
                     return self.apply_updateop_to_iterator(
                         input,
                         iter_base,
@@ -1227,17 +1456,26 @@ impl Interpreter {
 
                 // Get current value at target
                 let mut get_interp = Interpreter { ctx: ctx.clone() };
-                let current_results: Vec<_> = get_interp.eval_expr(&target_expr, input.clone(), ctx_clone.clone()).collect();
+                let current_results: Vec<_> = get_interp
+                    .eval_expr(&target_expr, input.clone(), ctx_clone.clone())
+                    .collect();
 
                 Box::new(current_results.into_iter().flat_map(move |current_result| {
                     match current_result {
                         Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         Ok(current_val) => {
                             // Evaluate the right-hand value
-                            let mut val_interp = Interpreter { ctx: ctx_clone.clone() };
-                            let right_val = match val_interp.eval_expr(&value_expr, input.clone(), ctx_clone.clone()).next() {
+                            let mut val_interp = Interpreter {
+                                ctx: ctx_clone.clone(),
+                            };
+                            let right_val = match val_interp
+                                .eval_expr(&value_expr, input.clone(), ctx_clone.clone())
+                                .next()
+                            {
                                 Some(Ok(v)) => v,
-                                Some(Err(e)) => return Box::new(std::iter::once(Err(e))) as EvalResult,
+                                Some(Err(e)) => {
+                                    return Box::new(std::iter::once(Err(e))) as EvalResult
+                                }
                                 None => return Box::new(std::iter::empty()) as EvalResult,
                             };
 
@@ -1294,7 +1532,11 @@ impl Interpreter {
                 Box::new(std::iter::once(Err(make_break_signal(label))))
             }
 
-            ExprKind::WithImports { imports, module_meta: _, body } => {
+            ExprKind::WithImports {
+                imports,
+                module_meta: _,
+                body,
+            } => {
                 // Process imports and add bindings to context
                 // Create a module loader and process the imports
                 let mut loader = crate::module::ModuleLoader::new();
@@ -1310,7 +1552,12 @@ impl Interpreter {
         }
     }
 
-    fn eval_object(&mut self, entries: &[crate::parser::ObjectEntry], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_object(
+        &mut self,
+        entries: &[crate::parser::ObjectEntry],
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // Fast path: single-result entries (no generators) - most common case
         // This avoids the expensive cartesian product calculation
         let mut is_simple = true;
@@ -1319,9 +1566,7 @@ impl Interpreter {
         for entry in entries {
             // Check if key is simple (not an expression that could produce multiple values)
             let key_str = match &entry.key {
-                ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => {
-                    s.clone()
-                }
+                ObjectKey::Ident(s) | ObjectKey::String(s) | ObjectKey::Shorthand(s) => s.clone(),
                 ObjectKey::Expr(_) => {
                     is_simple = false;
                     break;
@@ -1373,9 +1618,12 @@ impl Interpreter {
                     for result in key_interp.eval_expr(key_expr, input.clone(), ctx.clone()) {
                         match result {
                             Ok(Jv::String(s)) => keys.push(s.as_str().to_string()),
-                            Ok(v) => return Box::new(std::iter::once(Err(format!(
-                                "cannot use {} as object key", v.type_name()
-                            )))),
+                            Ok(v) => {
+                                return Box::new(std::iter::once(Err(format!(
+                                    "cannot use {} as object key",
+                                    v.type_name()
+                                ))))
+                            }
                             Err(e) => return Box::new(std::iter::once(Err(e))),
                         }
                     }
@@ -1397,7 +1645,8 @@ impl Interpreter {
             }
 
             // Combine keys and values (cartesian product for this entry)
-            let mut entry_combos: Vec<(String, Jv)> = Vec::with_capacity(key_strs.len() * values.len());
+            let mut entry_combos: Vec<(String, Jv)> =
+                Vec::with_capacity(key_strs.len() * values.len());
             for key in &key_strs {
                 for val in &values {
                     entry_combos.push((key.clone(), val.clone()));
@@ -1433,14 +1682,22 @@ impl Interpreter {
         }
 
         let combinations = cartesian_product(&entry_results);
-        let results: Vec<_> = combinations.into_iter().map(|combo| {
-            Ok(Jv::Object(JvObject::from_entries_vec(combo)))
-        }).collect();
+        let results: Vec<_> = combinations
+            .into_iter()
+            .map(|combo| Ok(Jv::Object(JvObject::from_entries_vec(combo))))
+            .collect();
 
         Box::new(results.into_iter())
     }
 
-    fn eval_function_call(&mut self, module: Option<&str>, name: &str, args: &[Expr], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_function_call(
+        &mut self,
+        module: Option<&str>,
+        name: &str,
+        args: &[Expr],
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let arity = args.len();
 
         // If module is specified, look up in that module's namespace
@@ -1455,7 +1712,8 @@ impl Interpreter {
                 return Box::new(std::iter::once(Ok(v)));
             }
             return Box::new(std::iter::once(Err(format!(
-                "{}::{}/{} is not defined", mod_name, name, arity
+                "{}::{}/{} is not defined",
+                mod_name, name, arity
             ))));
         }
 
@@ -1510,8 +1768,12 @@ impl Interpreter {
             ("JOIN", 3) => return self.eval_join3(&args[0], &args[1], &args[2], input, ctx),
             ("sub", 2) => return self.eval_sub(&args[0], &args[1], input, ctx, false),
             ("gsub", 2) => return self.eval_sub(&args[0], &args[1], input, ctx, true),
-            ("sub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, false),
-            ("gsub", 3) => return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, true),
+            ("sub", 3) => {
+                return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, false)
+            }
+            ("gsub", 3) => {
+                return self.eval_sub_flags(&args[0], &args[1], &args[2], input, ctx, true)
+            }
             ("truncate_stream", 1) => return self.eval_truncate_stream(&args[0], input, ctx),
             ("fromstream", 1) => return self.eval_fromstream(&args[0], input, ctx),
             ("ascii_downcase", 0) | ("ascii_upcase", 0) => {
@@ -1542,14 +1804,18 @@ impl Interpreter {
             } else if arity == 1 {
                 // Single argument - iterate over all values from the argument expression
                 let mut arg_interp = Interpreter { ctx: ctx.clone() };
-                let arg_results: Vec<_> = arg_interp.eval_expr(&args[0], input.clone(), ctx.clone()).collect();
+                let arg_results: Vec<_> = arg_interp
+                    .eval_expr(&args[0], input.clone(), ctx.clone())
+                    .collect();
 
                 let builtin = ctx.borrow().get_builtin(name, arity).copied();
                 if let Some(func) = builtin {
                     let ctx_for_builtin = ctx.clone();
                     return Box::new(arg_results.into_iter().flat_map(move |arg_result| {
                         match arg_result {
-                            Ok(arg_val) => func(&mut ctx_for_builtin.borrow_mut(), input.clone(), &[arg_val]),
+                            Ok(arg_val) => {
+                                func(&mut ctx_for_builtin.borrow_mut(), input.clone(), &[arg_val])
+                            }
                             Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                         }
                     }));
@@ -1560,12 +1826,16 @@ impl Interpreter {
                 let mut arg_value_lists: Vec<Vec<Result<Jv, String>>> = Vec::new();
                 for arg in args {
                     let mut arg_interp = Interpreter { ctx: ctx.clone() };
-                    let arg_results: Vec<_> = arg_interp.eval_expr(arg, input.clone(), ctx.clone()).collect();
+                    let arg_results: Vec<_> = arg_interp
+                        .eval_expr(arg, input.clone(), ctx.clone())
+                        .collect();
                     arg_value_lists.push(arg_results);
                 }
 
                 // Generate cartesian product of all arguments
-                fn cartesian_product(lists: &[Vec<Result<Jv, String>>]) -> Vec<Vec<Result<Jv, String>>> {
+                fn cartesian_product(
+                    lists: &[Vec<Result<Jv, String>>],
+                ) -> Vec<Vec<Result<Jv, String>>> {
                     if lists.is_empty() {
                         return vec![vec![]];
                     }
@@ -1603,7 +1873,9 @@ impl Interpreter {
                             }
                         }
                         if !has_error {
-                            for result in func(&mut ctx_for_builtin.borrow_mut(), input.clone(), &arg_vals) {
+                            for result in
+                                func(&mut ctx_for_builtin.borrow_mut(), input.clone(), &arg_vals)
+                            {
                                 all_results.push(result);
                             }
                         }
@@ -1631,10 +1903,20 @@ impl Interpreter {
             }
         }
 
-        Box::new(std::iter::once(Err(format!("unknown function: {}/{}", name, arity))))
+        Box::new(std::iter::once(Err(format!(
+            "unknown function: {}/{}",
+            name, arity
+        ))))
     }
 
-    fn call_user_function(&mut self, func: &FuncDef, args: &[Expr], input: Jv, call_ctx: Rc<RefCell<Context>>, closure_ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn call_user_function(
+        &mut self,
+        func: &FuncDef,
+        args: &[Expr],
+        input: Jv,
+        call_ctx: Rc<RefCell<Context>>,
+        closure_ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // Separate parameters into value params ($x) and filter params (x)
         let mut value_param_indices = Vec::new();
         let mut filter_param_indices = Vec::new();
@@ -1652,8 +1934,11 @@ impl Interpreter {
         let mut value_param_values: Vec<Vec<Jv>> = Vec::new();
         for &idx in &value_param_indices {
             let arg = &args[idx];
-            let mut arg_interp = Interpreter { ctx: call_ctx.clone() };
-            let values: Vec<_> = arg_interp.eval_expr(arg, input.clone(), call_ctx.clone())
+            let mut arg_interp = Interpreter {
+                ctx: call_ctx.clone(),
+            };
+            let values: Vec<_> = arg_interp
+                .eval_expr(arg, input.clone(), call_ctx.clone())
                 .filter_map(|r| r.ok())
                 .collect();
             if values.is_empty() {
@@ -1699,7 +1984,9 @@ impl Interpreter {
             // Bind value parameters from this combination
             for (combo_idx, &param_idx) in value_params.iter().enumerate() {
                 let param = &func_params[param_idx];
-                child_ctx.borrow_mut().bind_value(&param.name, combo[combo_idx].clone());
+                child_ctx
+                    .borrow_mut()
+                    .bind_value(&param.name, combo[combo_idx].clone());
             }
 
             // Bind filter parameters as expressions with call-site context
@@ -1713,8 +2000,12 @@ impl Interpreter {
                 );
             }
 
-            let mut inner = Interpreter { ctx: child_ctx.clone() };
-            let results: Vec<_> = inner.eval_expr(&func_body, input_clone.clone(), child_ctx).collect();
+            let mut inner = Interpreter {
+                ctx: child_ctx.clone(),
+            };
+            let results: Vec<_> = inner
+                .eval_expr(&func_body, input_clone.clone(), child_ctx)
+                .collect();
             results.into_iter()
         }))
     }
@@ -1730,7 +2021,9 @@ impl Interpreter {
 
                 let mut results = Vec::new();
                 for item in items {
-                    let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                    let mut inner = Interpreter {
+                        ctx: ctx_clone.clone(),
+                    };
                     for result in inner.eval_expr(&filter_expr, item, ctx_clone.clone()) {
                         match result {
                             Ok(v) => results.push(v),
@@ -1741,15 +2034,26 @@ impl Interpreter {
                 Box::new(std::iter::once(Ok(Jv::from_vec(results))))
             }
             Jv::Null => Box::new(std::iter::once(Ok(Jv::Null))),
-            _ => Box::new(std::iter::once(Err(format!("Cannot iterate over {} ({})", input.type_name(), input)))),
+            _ => Box::new(std::iter::once(Err(format!(
+                "Cannot iterate over {} ({})",
+                input.type_name(),
+                input
+            )))),
         }
     }
 
-    fn eval_select(&mut self, predicate: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_select(
+        &mut self,
+        predicate: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let pred_expr = predicate.clone();
         let ctx_clone = ctx.clone();
 
-        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+        let mut inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
         match inner.eval_expr(&pred_expr, input.clone(), ctx_clone).next() {
             Some(Ok(v)) if v.is_truthy() => Box::new(std::iter::once(Ok(input))),
             Some(Err(e)) => Box::new(std::iter::once(Err(e))),
@@ -1788,7 +2092,12 @@ impl Interpreter {
         }
     }
 
-    fn eval_recurse_with(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_recurse_with(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         const MAX_RECURSE: usize = 100000;
         let filter_expr = filter.clone();
         let ctx_clone = ctx.clone();
@@ -1798,9 +2107,13 @@ impl Interpreter {
 
         while let Some(current) = queue.pop() {
             if results.len() > MAX_RECURSE {
-                return Box::new(std::iter::once(Err("recurse: too many results".to_string())));
+                return Box::new(std::iter::once(
+                    Err("recurse: too many results".to_string()),
+                ));
             }
-            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+            let mut inner = Interpreter {
+                ctx: ctx_clone.clone(),
+            };
             for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
                 match result {
                     Ok(v) => {
@@ -1815,7 +2128,13 @@ impl Interpreter {
         Box::new(results.into_iter().map(Ok))
     }
 
-    fn eval_recurse_with_cond(&mut self, filter: &Expr, cond: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_recurse_with_cond(
+        &mut self,
+        filter: &Expr,
+        cond: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // recurse(f; cond) - apply f while condition is true
         // def recurse(f; cond): def r: ., (f | select(cond) | r); r;
         const MAX_RECURSE: usize = 100000;
@@ -1828,15 +2147,24 @@ impl Interpreter {
 
         while let Some(current) = queue.pop() {
             if results.len() > MAX_RECURSE {
-                return Box::new(std::iter::once(Err("recurse: too many results".to_string())));
+                return Box::new(std::iter::once(
+                    Err("recurse: too many results".to_string()),
+                ));
             }
-            let mut inner = Interpreter { ctx: ctx_clone.clone() };
+            let mut inner = Interpreter {
+                ctx: ctx_clone.clone(),
+            };
             for result in inner.eval_expr(&filter_expr, current, ctx_clone.clone()) {
                 match result {
                     Ok(v) => {
                         // Check if condition is satisfied
-                        let mut cond_interp = Interpreter { ctx: ctx_clone.clone() };
-                        match cond_interp.eval_expr(&cond_expr, v.clone(), ctx_clone.clone()).next() {
+                        let mut cond_interp = Interpreter {
+                            ctx: ctx_clone.clone(),
+                        };
+                        match cond_interp
+                            .eval_expr(&cond_expr, v.clone(), ctx_clone.clone())
+                            .next()
+                        {
                             Some(Ok(cond_val)) if cond_val.is_truthy() => {
                                 // Condition true - include and continue recursion
                                 results.push(v.clone());
@@ -1857,35 +2185,49 @@ impl Interpreter {
 
     fn eval_range1(&mut self, end_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         let ctx_clone = ctx.clone();
-        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+        let mut inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
 
         // Iterate over all end values (supports generators like range(3,5))
         let end_results: Vec<_> = inner.eval_expr(end_expr, input, ctx_clone).collect();
 
-        Box::new(end_results.into_iter().flat_map(|end_result| {
-            match end_result {
-                Ok(Jv::Number(n)) => {
-                    if let Some(end) = n.as_i64() {
-                        let values: Vec<Jv> = (0..end).map(Jv::from_i64).collect();
-                        Box::new(values.into_iter().map(Ok)) as EvalResult
-                    } else {
-                        Box::new(std::iter::once(Err("range requires integer".to_string())))
+        Box::new(
+            end_results
+                .into_iter()
+                .flat_map(|end_result| match end_result {
+                    Ok(Jv::Number(n)) => {
+                        if let Some(end) = n.as_i64() {
+                            let values: Vec<Jv> = (0..end).map(Jv::from_i64).collect();
+                            Box::new(values.into_iter().map(Ok)) as EvalResult
+                        } else {
+                            Box::new(std::iter::once(Err("range requires integer".to_string())))
+                        }
                     }
-                }
-                Err(e) => Box::new(std::iter::once(Err(e))),
-                _ => Box::new(std::iter::once(Err("range requires number".to_string()))),
-            }
-        }))
+                    Err(e) => Box::new(std::iter::once(Err(e))),
+                    _ => Box::new(std::iter::once(Err("range requires number".to_string()))),
+                }),
+        )
     }
 
-    fn eval_range2(&mut self, start_expr: &Expr, end_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_range2(
+        &mut self,
+        start_expr: &Expr,
+        end_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
         let input_clone = input.clone();
         let end_expr = end_expr.clone();
 
         // Collect all start values
-        let mut inner1 = Interpreter { ctx: ctx_clone.clone() };
-        let start_results: Vec<_> = inner1.eval_expr(start_expr, input, ctx_clone.clone()).collect();
+        let mut inner1 = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let start_results: Vec<_> = inner1
+            .eval_expr(start_expr, input, ctx_clone.clone())
+            .collect();
 
         let ctx_for_end = ctx_clone;
         Box::new(start_results.into_iter().flat_map(move |start_result| {
@@ -1896,23 +2238,31 @@ impl Interpreter {
             match start_result {
                 Ok(Jv::Number(start_num)) => {
                     if let Some(s) = start_num.as_i64() {
-                        let mut inner2 = Interpreter { ctx: ctx_for_end.clone() };
-                        let end_results: Vec<_> = inner2.eval_expr(&end_expr, input_clone, ctx_for_end).collect();
+                        let mut inner2 = Interpreter {
+                            ctx: ctx_for_end.clone(),
+                        };
+                        let end_results: Vec<_> = inner2
+                            .eval_expr(&end_expr, input_clone, ctx_for_end)
+                            .collect();
 
-                        Box::new(end_results.into_iter().flat_map(move |end_result| {
-                            match end_result {
+                        Box::new(end_results.into_iter().flat_map(
+                            move |end_result| match end_result {
                                 Ok(Jv::Number(end_num)) => {
                                     if let Some(e) = end_num.as_i64() {
                                         let values: Vec<Jv> = (s..e).map(Jv::from_i64).collect();
                                         Box::new(values.into_iter().map(Ok)) as EvalResult
                                     } else {
-                                        Box::new(std::iter::once(Err("range requires integers".to_string())))
+                                        Box::new(std::iter::once(Err(
+                                            "range requires integers".to_string()
+                                        )))
                                     }
                                 }
                                 Err(e) => Box::new(std::iter::once(Err(e))),
-                                _ => Box::new(std::iter::once(Err("range requires integers".to_string()))),
-                            }
-                        })) as EvalResult
+                                _ => Box::new(std::iter::once(Err(
+                                    "range requires integers".to_string(),
+                                ))),
+                            },
+                        )) as EvalResult
                     } else {
                         Box::new(std::iter::once(Err("range requires integers".to_string())))
                     }
@@ -1923,69 +2273,113 @@ impl Interpreter {
         }))
     }
 
-    fn eval_limit(&mut self, n_expr: &Expr, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_limit(
+        &mut self,
+        n_expr: &Expr,
+        iter_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
         let iter_expr = iter_expr.clone();
         let input_clone = input.clone();
 
         // Iterate over all n values (supports generators like limit(5,7; expr))
-        let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
-        let n_results: Vec<_> = n_inner.eval_expr(n_expr, input, ctx_clone.clone()).collect();
+        let mut n_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let n_results: Vec<_> = n_inner
+            .eval_expr(n_expr, input, ctx_clone.clone())
+            .collect();
 
         let ctx_for_iter = ctx_clone;
-        Box::new(n_results.into_iter().flat_map(move |n_result| {
-            match n_result {
-                Ok(Jv::Number(num)) => {
-                    match num.as_i64() {
-                        Some(i) if i < 0 => Box::new(std::iter::once(Err("limit doesn't support negative count".to_string()))) as EvalResult,
+        Box::new(
+            n_results
+                .into_iter()
+                .flat_map(move |n_result| match n_result {
+                    Ok(Jv::Number(num)) => match num.as_i64() {
+                        Some(i) if i < 0 => Box::new(std::iter::once(Err(
+                            "limit doesn't support negative count".to_string(),
+                        ))) as EvalResult,
                         Some(i) => {
                             let n = i as usize;
-                            let mut iter_inner = Interpreter { ctx: ctx_for_iter.clone() };
-                            let results: Vec<_> = iter_inner.eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone()).take(n).collect();
+                            let mut iter_inner = Interpreter {
+                                ctx: ctx_for_iter.clone(),
+                            };
+                            let results: Vec<_> = iter_inner
+                                .eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone())
+                                .take(n)
+                                .collect();
                             Box::new(results.into_iter())
                         }
-                        None => Box::new(std::iter::once(Err("limit requires integer".to_string()))),
-                    }
-                }
-                Err(e) => Box::new(std::iter::once(Err(e))),
-                _ => Box::new(std::iter::once(Err("limit requires number".to_string()))),
-            }
-        }))
+                        None => {
+                            Box::new(std::iter::once(Err("limit requires integer".to_string())))
+                        }
+                    },
+                    Err(e) => Box::new(std::iter::once(Err(e))),
+                    _ => Box::new(std::iter::once(Err("limit requires number".to_string()))),
+                }),
+        )
     }
 
-    fn eval_skip(&mut self, n_expr: &Expr, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_skip(
+        &mut self,
+        n_expr: &Expr,
+        iter_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
         let iter_expr = iter_expr.clone();
         let input_clone = input.clone();
 
         // Iterate over all n values (supports generators like skip(0,2,3; expr))
-        let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
-        let n_results: Vec<_> = n_inner.eval_expr(n_expr, input, ctx_clone.clone()).collect();
+        let mut n_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let n_results: Vec<_> = n_inner
+            .eval_expr(n_expr, input, ctx_clone.clone())
+            .collect();
 
         let ctx_for_iter = ctx_clone;
-        Box::new(n_results.into_iter().flat_map(move |n_result| {
-            match n_result {
-                Ok(Jv::Number(num)) => {
-                    match num.as_i64() {
-                        Some(i) if i < 0 => Box::new(std::iter::once(Err("skip doesn't support negative count".to_string()))) as EvalResult,
+        Box::new(
+            n_results
+                .into_iter()
+                .flat_map(move |n_result| match n_result {
+                    Ok(Jv::Number(num)) => match num.as_i64() {
+                        Some(i) if i < 0 => Box::new(std::iter::once(Err(
+                            "skip doesn't support negative count".to_string(),
+                        ))) as EvalResult,
                         Some(i) => {
                             let n = i as usize;
-                            let mut iter_inner = Interpreter { ctx: ctx_for_iter.clone() };
-                            let results: Vec<_> = iter_inner.eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone()).skip(n).collect();
+                            let mut iter_inner = Interpreter {
+                                ctx: ctx_for_iter.clone(),
+                            };
+                            let results: Vec<_> = iter_inner
+                                .eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone())
+                                .skip(n)
+                                .collect();
                             Box::new(results.into_iter()) as EvalResult
                         }
-                        None => Box::new(std::iter::once(Err("skip requires integer".to_string()))) as EvalResult,
-                    }
-                }
-                Err(e) => Box::new(std::iter::once(Err(e))),
-                _ => Box::new(std::iter::once(Err("skip requires number".to_string()))),
-            }
-        }))
+                        None => Box::new(std::iter::once(Err("skip requires integer".to_string())))
+                            as EvalResult,
+                    },
+                    Err(e) => Box::new(std::iter::once(Err(e))),
+                    _ => Box::new(std::iter::once(Err("skip requires number".to_string()))),
+                }),
+        )
     }
 
-    fn eval_first_expr(&mut self, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_first_expr(
+        &mut self,
+        iter_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
-        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+        let mut inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
 
         match inner.eval_expr(iter_expr, input, ctx_clone).next() {
             Some(result) => Box::new(std::iter::once(result)),
@@ -1993,9 +2387,16 @@ impl Interpreter {
         }
     }
 
-    fn eval_last_expr(&mut self, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_last_expr(
+        &mut self,
+        iter_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
-        let mut inner = Interpreter { ctx: ctx_clone.clone() };
+        let mut inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
 
         let mut last_result = None;
         for result in inner.eval_expr(iter_expr, input, ctx_clone) {
@@ -2008,64 +2409,105 @@ impl Interpreter {
         }
     }
 
-    fn eval_nth(&mut self, n_expr: &Expr, iter_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_nth(
+        &mut self,
+        n_expr: &Expr,
+        iter_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
         let iter_expr = iter_expr.clone();
         let input_clone = input.clone();
 
         // Iterate over all n values (supports generators like nth(0,5,9; expr))
-        let mut n_inner = Interpreter { ctx: ctx_clone.clone() };
-        let n_results: Vec<_> = n_inner.eval_expr(n_expr, input, ctx_clone.clone()).collect();
+        let mut n_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let n_results: Vec<_> = n_inner
+            .eval_expr(n_expr, input, ctx_clone.clone())
+            .collect();
 
         let ctx_for_iter = ctx_clone;
-        Box::new(n_results.into_iter().flat_map(move |n_result| {
-            match n_result {
-                Ok(Jv::Number(num)) => {
-                    match num.as_i64() {
-                        Some(i) if i < 0 => Box::new(std::iter::once(Err("nth doesn't support negative indices".to_string()))) as EvalResult,
+        Box::new(
+            n_results
+                .into_iter()
+                .flat_map(move |n_result| match n_result {
+                    Ok(Jv::Number(num)) => match num.as_i64() {
+                        Some(i) if i < 0 => Box::new(std::iter::once(Err(
+                            "nth doesn't support negative indices".to_string(),
+                        ))) as EvalResult,
                         Some(i) => {
                             let n = i as usize;
-                            let mut iter_inner = Interpreter { ctx: ctx_for_iter.clone() };
-                            match iter_inner.eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone()).nth(n) {
+                            let mut iter_inner = Interpreter {
+                                ctx: ctx_for_iter.clone(),
+                            };
+                            match iter_inner
+                                .eval_expr(&iter_expr, input_clone.clone(), ctx_for_iter.clone())
+                                .nth(n)
+                            {
                                 Some(result) => Box::new(std::iter::once(result)) as EvalResult,
                                 None => Box::new(std::iter::empty()) as EvalResult,
                             }
                         }
-                        None => Box::new(std::iter::once(Err("nth requires integer".to_string()))) as EvalResult,
-                    }
-                }
-                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                _ => Box::new(std::iter::once(Err("nth requires integer".to_string()))) as EvalResult,
-            }
-        }))
+                        None => Box::new(std::iter::once(Err("nth requires integer".to_string())))
+                            as EvalResult,
+                    },
+                    Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                    _ => Box::new(std::iter::once(Err("nth requires integer".to_string())))
+                        as EvalResult,
+                }),
+        )
     }
 
-    fn eval_reduce(&mut self, iter_expr: &Expr, pattern: &Pattern, init_expr: &Expr, update_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_reduce(
+        &mut self,
+        iter_expr: &Expr,
+        pattern: &Pattern,
+        init_expr: &Expr,
+        update_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
 
         // Evaluate initial value
-        let mut init_inner = Interpreter { ctx: ctx_clone.clone() };
-        let mut acc = match init_inner.eval_expr(init_expr, input.clone(), ctx_clone.clone()).next() {
+        let mut init_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let mut acc = match init_inner
+            .eval_expr(init_expr, input.clone(), ctx_clone.clone())
+            .next()
+        {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
             None => return Box::new(std::iter::empty()),
         };
 
         // Iterate over values
-        let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
+        let mut iter_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
         for result in iter_inner.eval_expr(iter_expr, input.clone(), ctx_clone.clone()) {
             match result {
                 Ok(item) => {
                     // Create context with binding
                     let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                    let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                    let mut bind_inner = Interpreter {
+                        ctx: child_ctx.clone(),
+                    };
                     if let Err(e) = bind_inner.bind_pattern(pattern, &item, &child_ctx) {
                         return Box::new(std::iter::once(Err(e)));
                     }
 
                     // Evaluate update with acc as input
-                    let mut update_inner = Interpreter { ctx: child_ctx.clone() };
-                    match update_inner.eval_expr(update_expr, acc.clone(), child_ctx).next() {
+                    let mut update_inner = Interpreter {
+                        ctx: child_ctx.clone(),
+                    };
+                    match update_inner
+                        .eval_expr(update_expr, acc.clone(), child_ctx)
+                        .next()
+                    {
                         Some(Ok(v)) => acc = v,
                         Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                         None => {}
@@ -2078,12 +2520,24 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(acc)))
     }
 
-    fn eval_foreach(&mut self, iter_expr: &Expr, pattern: &Pattern, init_expr: &Expr, update_expr: &Expr, extract_expr: Option<&Box<Expr>>, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_foreach(
+        &mut self,
+        iter_expr: &Expr,
+        pattern: &Pattern,
+        init_expr: &Expr,
+        update_expr: &Expr,
+        extract_expr: Option<&Box<Expr>>,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let ctx_clone = ctx.clone();
 
         // Evaluate initial values - foreach iterates over ALL init values
-        let mut init_inner = Interpreter { ctx: ctx_clone.clone() };
-        let init_values: Vec<Jv> = init_inner.eval_expr(init_expr, input.clone(), ctx_clone.clone())
+        let mut init_inner = Interpreter {
+            ctx: ctx_clone.clone(),
+        };
+        let init_values: Vec<Jv> = init_inner
+            .eval_expr(init_expr, input.clone(), ctx_clone.clone())
             .filter_map(|r| r.ok())
             .collect();
 
@@ -2099,22 +2553,33 @@ impl Interpreter {
             let mut results = Vec::new();
 
             // Iterate over values
-            let mut iter_inner = Interpreter { ctx: ctx_clone.clone() };
-            let iter_values: Vec<Result<Jv, String>> = iter_inner.eval_expr(iter_expr, input.clone(), ctx_clone.clone()).collect();
+            let mut iter_inner = Interpreter {
+                ctx: ctx_clone.clone(),
+            };
+            let iter_values: Vec<Result<Jv, String>> = iter_inner
+                .eval_expr(iter_expr, input.clone(), ctx_clone.clone())
+                .collect();
 
             for result in iter_values {
                 match result {
                     Ok(item) => {
                         // Create context with binding
                         let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                        let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                        let mut bind_inner = Interpreter {
+                            ctx: child_ctx.clone(),
+                        };
                         if let Err(e) = bind_inner.bind_pattern(pattern, &item, &child_ctx) {
                             return Box::new(std::iter::once(Err(e)));
                         }
 
                         // Evaluate update with state as input
-                        let mut update_inner = Interpreter { ctx: child_ctx.clone() };
-                        match update_inner.eval_expr(update_expr, state.clone(), child_ctx.clone()).next() {
+                        let mut update_inner = Interpreter {
+                            ctx: child_ctx.clone(),
+                        };
+                        match update_inner
+                            .eval_expr(update_expr, state.clone(), child_ctx.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => state = v,
                             Some(Err(e)) => {
                                 // Check if it's a break signal - if so, propagate it
@@ -2131,8 +2596,12 @@ impl Interpreter {
 
                         // Extract output if provided
                         if let Some(ext_expr) = extract_expr {
-                            let mut ext_inner = Interpreter { ctx: child_ctx.clone() };
-                            for ext_result in ext_inner.eval_expr(ext_expr, state.clone(), child_ctx) {
+                            let mut ext_inner = Interpreter {
+                                ctx: child_ctx.clone(),
+                            };
+                            for ext_result in
+                                ext_inner.eval_expr(ext_expr, state.clone(), child_ctx)
+                            {
                                 match ext_result {
                                     Ok(v) => results.push(Ok(v)),
                                     Err(e) => {
@@ -2159,7 +2628,12 @@ impl Interpreter {
         Box::new(all_results.into_iter())
     }
 
-    fn eval_group_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_group_by(
+        &mut self,
+        key_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
                 // Collect items with their keys
@@ -2168,7 +2642,8 @@ impl Interpreter {
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     // Collect all key values for tuple comparison
-                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                    let keys: Vec<Jv> = inner
+                        .eval_expr(key_expr, item.clone(), ctx.clone())
                         .filter_map(|r| r.ok())
                         .collect();
 
@@ -2214,16 +2689,19 @@ impl Interpreter {
                     groups.push(current_group);
                 }
 
-                let result: Vec<Jv> = groups.into_iter()
-                    .map(Jv::from_vec)
-                    .collect();
+                let result: Vec<Jv> = groups.into_iter().map(Jv::from_vec).collect();
                 Box::new(std::iter::once(Ok(Jv::from_vec(result))))
             }
             _ => Box::new(std::iter::once(Err("group_by requires array".to_string()))),
         }
     }
 
-    fn eval_sort_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_sort_by(
+        &mut self,
+        key_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
                 let mut items_with_keys: Vec<(Vec<Jv>, Jv)> = Vec::new();
@@ -2231,7 +2709,8 @@ impl Interpreter {
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     // Collect all key values for tuple comparison
-                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                    let keys: Vec<Jv> = inner
+                        .eval_expr(key_expr, item.clone(), ctx.clone())
                         .filter_map(|r| r.ok())
                         .collect();
 
@@ -2260,7 +2739,12 @@ impl Interpreter {
         }
     }
 
-    fn eval_unique_by(&mut self, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_unique_by(
+        &mut self,
+        key_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         match &input {
             Jv::Array(arr) => {
                 // Collect (key, item) pairs
@@ -2277,7 +2761,9 @@ impl Interpreter {
                 }
 
                 // Sort by key
-                pairs.sort_by(|(k1, _), (k2, _)| k1.partial_cmp(k2).unwrap_or(std::cmp::Ordering::Equal));
+                pairs.sort_by(|(k1, _), (k2, _)| {
+                    k1.partial_cmp(k2).unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 // Keep first occurrence of each unique key
                 use std::collections::HashSet;
@@ -2305,7 +2791,8 @@ impl Interpreter {
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     // Collect all key values for tuple comparison
-                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                    let keys: Vec<Jv> = inner
+                        .eval_expr(key_expr, item.clone(), ctx.clone())
                         .filter_map(|r| r.ok())
                         .collect();
 
@@ -2353,7 +2840,8 @@ impl Interpreter {
                 for item in arr.iter() {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     // Collect all key values for tuple comparison
-                    let keys: Vec<Jv> = inner.eval_expr(key_expr, item.clone(), ctx.clone())
+                    let keys: Vec<Jv> = inner
+                        .eval_expr(key_expr, item.clone(), ctx.clone())
                         .filter_map(|r| r.ok())
                         .collect();
 
@@ -2420,7 +2908,12 @@ impl Interpreter {
         }
     }
 
-    fn eval_any_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_any_filter(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // any(f) = map(f) | any
         match &input {
             Jv::Array(arr) => {
@@ -2440,7 +2933,12 @@ impl Interpreter {
         }
     }
 
-    fn eval_all_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_all_filter(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // all(f) = map(f) | all
         match &input {
             Jv::Array(arr) => {
@@ -2460,7 +2958,13 @@ impl Interpreter {
         }
     }
 
-    fn eval_any_gen_filter(&mut self, gen: &Expr, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_any_gen_filter(
+        &mut self,
+        gen: &Expr,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // any(gen; filter) = first(gen | select(filter)) | true
         let mut inner_gen = Interpreter { ctx: ctx.clone() };
         for result in inner_gen.eval_expr(gen, input.clone(), ctx.clone()) {
@@ -2481,7 +2985,13 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(Jv::Bool(false))))
     }
 
-    fn eval_all_gen_filter(&mut self, gen: &Expr, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_all_gen_filter(
+        &mut self,
+        gen: &Expr,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // all(gen; filter) = first(gen | if filter then empty else . end) | false | not
         let mut inner_gen = Interpreter { ctx: ctx.clone() };
         for result in inner_gen.eval_expr(gen, input.clone(), ctx.clone()) {
@@ -2502,7 +3012,12 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(Jv::Bool(true))))
     }
 
-    fn eval_in_stream(&mut self, stream: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_in_stream(
+        &mut self,
+        stream: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // IN(s) = any(s == .; .)
         // Check if input equals any value produced by the stream
         let mut inner = Interpreter { ctx: ctx.clone() };
@@ -2519,16 +3034,24 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(Jv::Bool(false))))
     }
 
-    fn eval_in_stream2(&mut self, src: &Expr, stream: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_in_stream2(
+        &mut self,
+        src: &Expr,
+        stream: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // IN(src; s) = any(src == s; .)
         // Check if any value from src equals any value from stream
         let mut inner_src = Interpreter { ctx: ctx.clone() };
-        let src_values: Vec<_> = inner_src.eval_expr(src, input.clone(), ctx.clone())
+        let src_values: Vec<_> = inner_src
+            .eval_expr(src, input.clone(), ctx.clone())
             .filter_map(|r| r.ok())
             .collect();
 
         let mut inner_s = Interpreter { ctx: ctx.clone() };
-        let stream_values: Vec<_> = inner_s.eval_expr(stream, Jv::Null, ctx.clone())
+        let stream_values: Vec<_> = inner_s
+            .eval_expr(stream, Jv::Null, ctx.clone())
             .filter_map(|r| r.ok())
             .collect();
 
@@ -2542,7 +3065,13 @@ impl Interpreter {
 
     // INDEX(stream; idx_expr) - creates object mapping idx_expr to stream elements
     // def INDEX(stream; idx_expr): reduce stream as $row ({}; .[$row|idx_expr|tostring] = $row)
-    fn eval_index2(&mut self, stream: &Expr, idx_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_index2(
+        &mut self,
+        stream: &Expr,
+        idx_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         use crate::jv::JvObject;
 
         let mut result = JvObject::new();
@@ -2553,7 +3082,10 @@ impl Interpreter {
                 Ok(row) => {
                     // Evaluate idx_expr on row
                     let mut idx_interp = Interpreter { ctx: ctx.clone() };
-                    if let Some(idx_result) = idx_interp.eval_expr(idx_expr, row.clone(), ctx.clone()).next() {
+                    if let Some(idx_result) = idx_interp
+                        .eval_expr(idx_expr, row.clone(), ctx.clone())
+                        .next()
+                    {
                         match idx_result {
                             Ok(idx_val) => {
                                 // Convert to string for object key
@@ -2582,7 +3114,11 @@ impl Interpreter {
         // input should be an array, iterate over it
         let arr = match &input {
             Jv::Array(a) => a,
-            _ => return Box::new(std::iter::once(Err("INDEX requires array input".to_string()))),
+            _ => {
+                return Box::new(std::iter::once(Err(
+                    "INDEX requires array input".to_string()
+                )))
+            }
         };
 
         let mut result = JvObject::new();
@@ -2590,7 +3126,10 @@ impl Interpreter {
         for row in arr.iter() {
             // Evaluate idx_expr on row
             let mut idx_interp = Interpreter { ctx: ctx.clone() };
-            if let Some(idx_result) = idx_interp.eval_expr(idx_expr, row.clone(), ctx.clone()).next() {
+            if let Some(idx_result) = idx_interp
+                .eval_expr(idx_expr, row.clone(), ctx.clone())
+                .next()
+            {
                 match idx_result {
                     Ok(idx_val) => {
                         // Convert to string for object key
@@ -2610,22 +3149,39 @@ impl Interpreter {
     }
 
     // JOIN($idx; idx_expr) - [.[] | [., $idx[idx_expr]]]
-    fn eval_join2(&mut self, idx_expr: &Expr, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_join2(
+        &mut self,
+        idx_expr: &Expr,
+        key_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // idx_expr is the index object ($idx in jq definition)
         // key_expr is the expression to compute the key
 
         // First evaluate idx_expr to get the index object
         let mut idx_interp = Interpreter { ctx: ctx.clone() };
-        let idx_obj = match idx_interp.eval_expr(idx_expr, input.clone(), ctx.clone()).next() {
+        let idx_obj = match idx_interp
+            .eval_expr(idx_expr, input.clone(), ctx.clone())
+            .next()
+        {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-            None => return Box::new(std::iter::once(Err("INDEX object evaluation produced no value".to_string()))),
+            None => {
+                return Box::new(std::iter::once(Err(
+                    "INDEX object evaluation produced no value".to_string(),
+                )))
+            }
         };
 
         // Input should be an array
         let arr = match &input {
             Jv::Array(a) => a,
-            _ => return Box::new(std::iter::once(Err("JOIN requires array input".to_string()))),
+            _ => {
+                return Box::new(std::iter::once(
+                    Err("JOIN requires array input".to_string()),
+                ))
+            }
         };
 
         let mut results = Vec::new();
@@ -2633,7 +3189,10 @@ impl Interpreter {
         for item in arr.iter() {
             // Compute the key for this item
             let mut key_interp = Interpreter { ctx: ctx.clone() };
-            let key_val = match key_interp.eval_expr(key_expr, item.clone(), ctx.clone()).next() {
+            let key_val = match key_interp
+                .eval_expr(key_expr, item.clone(), ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) => v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => continue,
@@ -2660,13 +3219,27 @@ impl Interpreter {
     }
 
     // JOIN($idx; stream; idx_expr) - stream | [., $idx[idx_expr]]
-    fn eval_join3(&mut self, idx_expr: &Expr, stream: &Expr, key_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_join3(
+        &mut self,
+        idx_expr: &Expr,
+        stream: &Expr,
+        key_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // First evaluate idx_expr to get the index object
         let mut idx_interp = Interpreter { ctx: ctx.clone() };
-        let idx_obj = match idx_interp.eval_expr(idx_expr, input.clone(), ctx.clone()).next() {
+        let idx_obj = match idx_interp
+            .eval_expr(idx_expr, input.clone(), ctx.clone())
+            .next()
+        {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-            None => return Box::new(std::iter::once(Err("INDEX object evaluation produced no value".to_string()))),
+            None => {
+                return Box::new(std::iter::once(Err(
+                    "INDEX object evaluation produced no value".to_string(),
+                )))
+            }
         };
 
         let idx_obj_clone = idx_obj;
@@ -2676,35 +3249,44 @@ impl Interpreter {
         // Evaluate stream and for each item, create [item, $idx[key]]
         let mut stream_interp = Interpreter { ctx: ctx.clone() };
 
-        Box::new(stream_interp.eval_expr(stream, input, ctx).map(move |item_result| {
-            match item_result {
-                Ok(item) => {
-                    // Compute the key for this item
-                    let mut key_interp = Interpreter { ctx: ctx_clone.clone() };
-                    let key_val = match key_interp.eval_expr(&key_expr, item.clone(), ctx_clone.clone()).next() {
-                        Some(Ok(v)) => v,
-                        Some(Err(e)) => return Err(e),
-                        None => return Ok(Jv::from_vec(vec![item, Jv::Null])),
-                    };
+        Box::new(
+            stream_interp
+                .eval_expr(stream, input, ctx)
+                .map(move |item_result| {
+                    match item_result {
+                        Ok(item) => {
+                            // Compute the key for this item
+                            let mut key_interp = Interpreter {
+                                ctx: ctx_clone.clone(),
+                            };
+                            let key_val = match key_interp
+                                .eval_expr(&key_expr, item.clone(), ctx_clone.clone())
+                                .next()
+                            {
+                                Some(Ok(v)) => v,
+                                Some(Err(e)) => return Err(e),
+                                None => return Ok(Jv::from_vec(vec![item, Jv::Null])),
+                            };
 
-                    // Convert key to string
-                    let key = match &key_val {
-                        Jv::String(s) => s.as_str().to_string(),
-                        Jv::Number(n) => format!("{}", n),
-                        _ => format!("{}", key_val),
-                    };
+                            // Convert key to string
+                            let key = match &key_val {
+                                Jv::String(s) => s.as_str().to_string(),
+                                Jv::Number(n) => format!("{}", n),
+                                _ => format!("{}", key_val),
+                            };
 
-                    // Look up in the index object
-                    let lookup = match &idx_obj_clone {
-                        Jv::Object(obj) => obj.get(&key).unwrap_or(Jv::Null),
-                        _ => Jv::Null,
-                    };
+                            // Look up in the index object
+                            let lookup = match &idx_obj_clone {
+                                Jv::Object(obj) => obj.get(&key).unwrap_or(Jv::Null),
+                                _ => Jv::Null,
+                            };
 
-                    Ok(Jv::from_vec(vec![item, lookup]))
-                }
-                Err(e) => Err(e),
-            }
-        }))
+                            Ok(Jv::from_vec(vec![item, lookup]))
+                        }
+                        Err(e) => Err(e),
+                    }
+                }),
+        )
     }
 
     fn eval_del(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
@@ -2716,11 +3298,7 @@ impl Interpreter {
         }
     }
 
-    fn apply_deletion(
-        current: Jv,
-        target: &Expr,
-        ctx: Rc<RefCell<Context>>,
-    ) -> Result<Jv, String> {
+    fn apply_deletion(current: Jv, target: &Expr, ctx: Rc<RefCell<Context>>) -> Result<Jv, String> {
         match &target.kind {
             ExprKind::Identity => {
                 // del(.) - return null
@@ -2736,10 +3314,16 @@ impl Interpreter {
                     _ => Ok(current), // No-op if not object
                 }
             }
-            ExprKind::Index { expr: base, index, optional: _ } => {
+            ExprKind::Index {
+                expr: base,
+                index,
+                optional: _,
+            } => {
                 // Check if index produces multiple values (comma expression)
                 let mut idx_interp = Interpreter { ctx: ctx.clone() };
-                let idx_results: Vec<_> = idx_interp.eval_expr(index, current.clone(), ctx.clone()).collect();
+                let idx_results: Vec<_> = idx_interp
+                    .eval_expr(index, current.clone(), ctx.clone())
+                    .collect();
 
                 if idx_results.is_empty() {
                     return Ok(current);
@@ -2752,7 +3336,8 @@ impl Interpreter {
                             match &current {
                                 Jv::Array(arr) => {
                                     let len = arr.len() as i64;
-                                    let mut to_delete: std::collections::HashSet<usize> = std::collections::HashSet::new();
+                                    let mut to_delete: std::collections::HashSet<usize> =
+                                        std::collections::HashSet::new();
 
                                     for result in idx_results {
                                         if let Ok(Jv::Number(n)) = result {
@@ -2798,15 +3383,13 @@ impl Interpreter {
                         };
 
                         match &idx_val {
-                            Jv::String(s) => {
-                                match current {
-                                    Jv::Object(mut obj) => {
-                                        obj.delete(s.as_str());
-                                        Ok(Jv::Object(obj))
-                                    }
-                                    _ => Ok(current),
+                            Jv::String(s) => match current {
+                                Jv::Object(mut obj) => {
+                                    obj.delete(s.as_str());
+                                    Ok(Jv::Object(obj))
                                 }
-                            }
+                                _ => Ok(current),
+                            },
                             Jv::Number(n) => {
                                 if let Some(idx) = n.as_i64() {
                                     match current {
@@ -2826,7 +3409,10 @@ impl Interpreter {
                     _ => {
                         // Nested deletion
                         let mut base_interp = Interpreter { ctx: ctx.clone() };
-                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                        let base_val = match base_interp
+                            .eval_expr(base, current.clone(), ctx.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => return Ok(current),
@@ -2850,18 +3436,27 @@ impl Interpreter {
                             },
                             target.span,
                         );
-                        let modified_base = Self::apply_deletion(base_val, &inner_target, ctx.clone())?;
+                        let modified_base =
+                            Self::apply_deletion(base_val, &inner_target, ctx.clone())?;
                         Self::apply_assignment(current, base, modified_base, &mut Vec::new(), ctx)
                     }
                 }
             }
-            ExprKind::Slice { expr: base, start, end, optional: _ } => {
+            ExprKind::Slice {
+                expr: base,
+                start,
+                end,
+                optional: _,
+            } => {
                 // del(.[start:end])
                 let mut interp = Interpreter { ctx: ctx.clone() };
 
                 // Evaluate start and end indices
                 let start_val = if let Some(start_expr) = start {
-                    match interp.eval_expr(start_expr, current.clone(), ctx.clone()).next() {
+                    match interp
+                        .eval_expr(start_expr, current.clone(), ctx.clone())
+                        .next()
+                    {
                         Some(Ok(Jv::Number(n))) => n.as_i64(),
                         Some(Err(e)) => return Err(e),
                         _ => None,
@@ -2871,7 +3466,10 @@ impl Interpreter {
                 };
 
                 let end_val = if let Some(end_expr) = end {
-                    match interp.eval_expr(end_expr, current.clone(), ctx.clone()).next() {
+                    match interp
+                        .eval_expr(end_expr, current.clone(), ctx.clone())
+                        .next()
+                    {
                         Some(Ok(Jv::Number(n))) => n.as_i64(),
                         Some(Err(e)) => return Err(e),
                         _ => None,
@@ -2913,7 +3511,10 @@ impl Interpreter {
                     _ => {
                         // Nested slice deletion
                         let mut base_interp = Interpreter { ctx: ctx.clone() };
-                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                        let base_val = match base_interp
+                            .eval_expr(base, current.clone(), ctx.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => return Ok(current),
@@ -2928,7 +3529,8 @@ impl Interpreter {
                             },
                             span: target.span,
                         };
-                        let modified_base = Self::apply_deletion(base_val, &inner_target, ctx.clone())?;
+                        let modified_base =
+                            Self::apply_deletion(base_val, &inner_target, ctx.clone())?;
                         Self::apply_assignment(current, base, modified_base, &mut Vec::new(), ctx)
                     }
                 }
@@ -2953,21 +3555,33 @@ impl Interpreter {
                     indices: &mut Vec<DeleteTarget>,
                 ) {
                     match &expr.kind {
-                        ExprKind::Index { expr: base, index, .. } => {
+                        ExprKind::Index {
+                            expr: base, index, ..
+                        } => {
                             if let ExprKind::Identity = base.kind {
                                 let mut interp = Interpreter { ctx: ctx.clone() };
-                                if let Some(Ok(Jv::Number(n))) = interp.eval_expr(index, input.clone(), ctx.clone()).next() {
+                                if let Some(Ok(Jv::Number(n))) =
+                                    interp.eval_expr(index, input.clone(), ctx.clone()).next()
+                                {
                                     if let Some(idx) = n.as_i64() {
                                         indices.push(DeleteTarget::Single(idx));
                                     }
                                 }
                             }
                         }
-                        ExprKind::Slice { expr: base, start, end, .. } => {
+                        ExprKind::Slice {
+                            expr: base,
+                            start,
+                            end,
+                            ..
+                        } => {
                             if let ExprKind::Identity = base.kind {
                                 let mut interp = Interpreter { ctx: ctx.clone() };
                                 let start_val = if let Some(start_expr) = start {
-                                    match interp.eval_expr(start_expr, input.clone(), ctx.clone()).next() {
+                                    match interp
+                                        .eval_expr(start_expr, input.clone(), ctx.clone())
+                                        .next()
+                                    {
                                         Some(Ok(Jv::Number(n))) => n.as_i64().unwrap_or(0),
                                         _ => 0,
                                     }
@@ -2976,7 +3590,10 @@ impl Interpreter {
                                 };
 
                                 let end_val = if let Some(end_expr) = end {
-                                    match interp.eval_expr(end_expr, input.clone(), ctx.clone()).next() {
+                                    match interp
+                                        .eval_expr(end_expr, input.clone(), ctx.clone())
+                                        .next()
+                                    {
                                         Some(Ok(Jv::Number(n))) => n.as_i64(),
                                         _ => None,
                                     }
@@ -2984,7 +3601,10 @@ impl Interpreter {
                                     None // None means to the end of array
                                 };
 
-                                indices.push(DeleteTarget::Slice { start: start_val, end: end_val });
+                                indices.push(DeleteTarget::Slice {
+                                    start: start_val,
+                                    end: end_val,
+                                });
                             }
                         }
                         ExprKind::Comma(l, r) => {
@@ -3002,17 +3622,26 @@ impl Interpreter {
                     collect_indices_to_delete(target, &current, ctx.clone(), &mut indices);
 
                     // Convert to absolute indices and flatten slices
-                    let mut to_delete: std::collections::HashSet<usize> = std::collections::HashSet::new();
+                    let mut to_delete: std::collections::HashSet<usize> =
+                        std::collections::HashSet::new();
                     for target in indices {
                         match target {
                             DeleteTarget::Single(idx) => {
-                                let abs_idx = if idx < 0 { (len + idx).max(0) as usize } else { idx as usize };
+                                let abs_idx = if idx < 0 {
+                                    (len + idx).max(0) as usize
+                                } else {
+                                    idx as usize
+                                };
                                 if abs_idx < arr.len() {
                                     to_delete.insert(abs_idx);
                                 }
                             }
                             DeleteTarget::Slice { start, end } => {
-                                let start_idx = if start < 0 { (len + start).max(0) as usize } else { (start as usize).min(arr.len()) };
+                                let start_idx = if start < 0 {
+                                    (len + start).max(0) as usize
+                                } else {
+                                    (start as usize).min(arr.len())
+                                };
                                 let end_idx = match end {
                                     Some(e) if e < 0 => (len + e).max(0) as usize,
                                     Some(e) => (e as usize).min(arr.len()),
@@ -3057,7 +3686,10 @@ impl Interpreter {
                         match &inner.kind {
                             ExprKind::Comma(_, _) => {
                                 // Collect all field expressions from the comma
-                                fn collect_path_exprs<'a>(expr: &'a Expr, exprs: &mut Vec<&'a Expr>) {
+                                fn collect_path_exprs<'a>(
+                                    expr: &'a Expr,
+                                    exprs: &mut Vec<&'a Expr>,
+                                ) {
                                     match &expr.kind {
                                         ExprKind::Comma(l, r) => {
                                             collect_path_exprs(l, exprs);
@@ -3076,23 +3708,26 @@ impl Interpreter {
                                     // Check if this path actually exists in the object
                                     // For field access, check if the field exists
                                     let path_exists = match &path_expr.kind {
-                                        ExprKind::Field(name) => {
-                                            match &result {
-                                                Jv::Object(obj) => obj.get(name).is_some(),
-                                                _ => false,
-                                            }
-                                        }
-                                        ExprKind::Index { expr: base, index, .. } => {
+                                        ExprKind::Field(name) => match &result {
+                                            Jv::Object(obj) => obj.get(name).is_some(),
+                                            _ => false,
+                                        },
+                                        ExprKind::Index {
+                                            expr: base, index, ..
+                                        } => {
                                             if matches!(base.kind, ExprKind::Identity) {
                                                 // Check if it's a field index on an object
                                                 let mut interp = Interpreter { ctx: ctx.clone() };
-                                                match interp.eval_expr(index, result.clone(), ctx.clone()).next() {
-                                                    Some(Ok(Jv::String(s))) => {
-                                                        match &result {
-                                                            Jv::Object(obj) => obj.get(s.as_str()).is_some(),
-                                                            _ => true,
+                                                match interp
+                                                    .eval_expr(index, result.clone(), ctx.clone())
+                                                    .next()
+                                                {
+                                                    Some(Ok(Jv::String(s))) => match &result {
+                                                        Jv::Object(obj) => {
+                                                            obj.get(s.as_str()).is_some()
                                                         }
-                                                    }
+                                                        _ => true,
+                                                    },
                                                     _ => true, // For non-string indices, assume path exists
                                                 }
                                             } else {
@@ -3108,12 +3743,25 @@ impl Interpreter {
 
                                     // Get the value at this path
                                     let mut interp = Interpreter { ctx: ctx.clone() };
-                                    match interp.eval_expr(path_expr, result.clone(), ctx.clone()).next() {
+                                    match interp
+                                        .eval_expr(path_expr, result.clone(), ctx.clone())
+                                        .next()
+                                    {
                                         Some(Ok(sub_value)) => {
                                             // Apply right deletion to this sub-value
-                                            let modified = Self::apply_deletion(sub_value, right, ctx.clone())?;
+                                            let modified = Self::apply_deletion(
+                                                sub_value,
+                                                right,
+                                                ctx.clone(),
+                                            )?;
                                             // Write it back using assignment
-                                            result = Self::apply_assignment(result, path_expr, modified, &mut Vec::new(), ctx.clone())?;
+                                            result = Self::apply_assignment(
+                                                result,
+                                                path_expr,
+                                                modified,
+                                                &mut Vec::new(),
+                                                ctx.clone(),
+                                            )?;
                                         }
                                         Some(Err(e)) => return Err(e),
                                         None => {} // No value at this path, skip
@@ -3126,8 +3774,15 @@ impl Interpreter {
                                 let mut interp = Interpreter { ctx: ctx.clone() };
                                 match interp.eval_expr(left, current.clone(), ctx.clone()).next() {
                                     Some(Ok(sub_value)) => {
-                                        let modified = Self::apply_deletion(sub_value, right, ctx.clone())?;
-                                        Self::apply_assignment(current, left, modified, &mut Vec::new(), ctx)
+                                        let modified =
+                                            Self::apply_deletion(sub_value, right, ctx.clone())?;
+                                        Self::apply_assignment(
+                                            current,
+                                            left,
+                                            modified,
+                                            &mut Vec::new(),
+                                            ctx,
+                                        )
                                     }
                                     Some(Err(e)) => Err(e),
                                     None => Ok(current),
@@ -3141,7 +3796,13 @@ impl Interpreter {
                         match interp.eval_expr(left, current.clone(), ctx.clone()).next() {
                             Some(Ok(sub_value)) => {
                                 let modified = Self::apply_deletion(sub_value, right, ctx.clone())?;
-                                Self::apply_assignment(current, left, modified, &mut Vec::new(), ctx)
+                                Self::apply_assignment(
+                                    current,
+                                    left,
+                                    modified,
+                                    &mut Vec::new(),
+                                    ctx,
+                                )
                             }
                             Some(Err(e)) => Err(e),
                             None => Ok(current),
@@ -3162,26 +3823,38 @@ impl Interpreter {
         }
     }
 
-    fn eval_getpath(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_getpath(
+        &mut self,
+        path_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // getpath(path_array) - evaluate the path expression to get array, then traverse
-        let path_results: Vec<_> = self.eval_expr(path_expr, input.clone(), ctx.clone()).collect();
+        let path_results: Vec<_> = self
+            .eval_expr(path_expr, input.clone(), ctx.clone())
+            .collect();
 
-        Box::new(path_results.into_iter().flat_map(move |path_result| {
-            match path_result {
-                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
-                Ok(Jv::Array(path)) => {
-                    let mut current = input.clone();
-                    for key in path.iter() {
-                        current = current.index(&key);
-                        if current.is_invalid() {
-                            return Box::new(std::iter::once(Ok(Jv::Null))) as EvalResult;
+        Box::new(
+            path_results
+                .into_iter()
+                .flat_map(move |path_result| match path_result {
+                    Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                    Ok(Jv::Array(path)) => {
+                        let mut current = input.clone();
+                        for key in path.iter() {
+                            current = current.index(&key);
+                            if current.is_invalid() {
+                                return Box::new(std::iter::once(Ok(Jv::Null))) as EvalResult;
+                            }
                         }
+                        Box::new(std::iter::once(Ok(current))) as EvalResult
                     }
-                    Box::new(std::iter::once(Ok(current))) as EvalResult
-                }
-                Ok(v) => Box::new(std::iter::once(Err(format!("getpath requires array, got {}", v.type_name())))) as EvalResult,
-            }
-        }))
+                    Ok(v) => Box::new(std::iter::once(Err(format!(
+                        "getpath requires array, got {}",
+                        v.type_name()
+                    )))) as EvalResult,
+                }),
+        )
     }
 
     fn eval_isempty(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
@@ -3235,18 +3908,26 @@ impl Interpreter {
                     }
                     Jv::Object(result)
                 }
-                _ => return Box::new(std::iter::once(Err(format!(
-                    "Cannot add {} and {}",
-                    acc.type_name(),
-                    item.type_name()
-                )))),
+                _ => {
+                    return Box::new(std::iter::once(Err(format!(
+                        "Cannot add {} and {}",
+                        acc.type_name(),
+                        item.type_name()
+                    ))))
+                }
             };
         }
 
         Box::new(std::iter::once(Ok(acc)))
     }
 
-    fn eval_until(&mut self, cond: &Expr, update: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_until(
+        &mut self,
+        cond: &Expr,
+        update: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // until(cond; update) - apply update until cond is true
         let mut current = input;
         let max_iterations = 10000; // Safety limit
@@ -3254,7 +3935,10 @@ impl Interpreter {
         for _ in 0..max_iterations {
             // Check condition
             let mut cond_interp = Interpreter { ctx: ctx.clone() };
-            match cond_interp.eval_expr(cond, current.clone(), ctx.clone()).next() {
+            match cond_interp
+                .eval_expr(cond, current.clone(), ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) if v.is_truthy() => {
                     return Box::new(std::iter::once(Ok(current)));
                 }
@@ -3264,17 +3948,28 @@ impl Interpreter {
 
             // Apply update
             let mut update_interp = Interpreter { ctx: ctx.clone() };
-            match update_interp.eval_expr(update, current.clone(), ctx.clone()).next() {
+            match update_interp
+                .eval_expr(update, current.clone(), ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) => current = v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => return Box::new(std::iter::empty()),
             }
         }
 
-        Box::new(std::iter::once(Err("until: too many iterations".to_string())))
+        Box::new(std::iter::once(Err(
+            "until: too many iterations".to_string()
+        )))
     }
 
-    fn eval_while(&mut self, cond: &Expr, update: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_while(
+        &mut self,
+        cond: &Expr,
+        update: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // while(cond; update) - output each value while cond is true
         let mut current = input;
         let mut results = Vec::new();
@@ -3283,7 +3978,10 @@ impl Interpreter {
         for _ in 0..max_iterations {
             // Check condition
             let mut cond_interp = Interpreter { ctx: ctx.clone() };
-            match cond_interp.eval_expr(cond, current.clone(), ctx.clone()).next() {
+            match cond_interp
+                .eval_expr(cond, current.clone(), ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) if !v.is_truthy() => break,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 _ => {}
@@ -3293,7 +3991,10 @@ impl Interpreter {
 
             // Apply update
             let mut update_interp = Interpreter { ctx: ctx.clone() };
-            match update_interp.eval_expr(update, current.clone(), ctx.clone()).next() {
+            match update_interp
+                .eval_expr(update, current.clone(), ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) => current = v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => break,
@@ -3346,8 +4047,11 @@ impl Interpreter {
                     }
 
                     // Start a new iteration of the expression
-                    let mut interp = Interpreter { ctx: self.ctx.clone() };
-                    self.current_iter = Some(interp.eval_expr(&self.expr, self.input.clone(), self.ctx.clone()));
+                    let mut interp = Interpreter {
+                        ctx: self.ctx.clone(),
+                    };
+                    self.current_iter =
+                        Some(interp.eval_expr(&self.expr, self.input.clone(), self.ctx.clone()));
                 }
             }
         }
@@ -3362,7 +4066,14 @@ impl Interpreter {
         })
     }
 
-    fn eval_range3(&mut self, start_expr: &Expr, end_expr: &Expr, step_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_range3(
+        &mut self,
+        start_expr: &Expr,
+        end_expr: &Expr,
+        step_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // range(start; end; step) - iterate over all combinations of start, end, step values
         let input_clone = input.clone();
         let input_clone2 = input.clone();
@@ -3385,8 +4096,12 @@ impl Interpreter {
                 Ok(start_val) => {
                     let start = start_val.as_f64().unwrap_or(0.0);
 
-                    let mut interp2 = Interpreter { ctx: ctx_clone.clone() };
-                    let end_results: Vec<_> = interp2.eval_expr(&end_expr, input_clone, ctx_clone.clone()).collect();
+                    let mut interp2 = Interpreter {
+                        ctx: ctx_clone.clone(),
+                    };
+                    let end_results: Vec<_> = interp2
+                        .eval_expr(&end_expr, input_clone, ctx_clone.clone())
+                        .collect();
 
                     Box::new(end_results.into_iter().flat_map(move |end_result| {
                         let step_expr = step_expr.clone();
@@ -3397,8 +4112,12 @@ impl Interpreter {
                             Ok(end_val) => {
                                 let end = end_val.as_f64().unwrap_or(0.0);
 
-                                let mut interp3 = Interpreter { ctx: ctx_clone.clone() };
-                                let step_results: Vec<_> = interp3.eval_expr(&step_expr, input_clone2, ctx_clone).collect();
+                                let mut interp3 = Interpreter {
+                                    ctx: ctx_clone.clone(),
+                                };
+                                let step_results: Vec<_> = interp3
+                                    .eval_expr(&step_expr, input_clone2, ctx_clone)
+                                    .collect();
 
                                 Box::new(step_results.into_iter().flat_map(move |step_result| {
                                     match step_result {
@@ -3443,7 +4162,12 @@ impl Interpreter {
         // walk(f) - recursively apply f to all values (depth-first, bottom-up)
         // f can be a generator producing multiple outputs
         // If f produces no output for a value, that value is omitted
-        fn walk_value(interp: &mut Interpreter, filter: &Expr, value: Jv, ctx: Rc<RefCell<Context>>) -> Vec<Result<Jv, String>> {
+        fn walk_value(
+            interp: &mut Interpreter,
+            filter: &Expr,
+            value: Jv,
+            ctx: Rc<RefCell<Context>>,
+        ) -> Vec<Result<Jv, String>> {
             // First, recursively walk children
             let walked = match &value {
                 Jv::Array(arr) => {
@@ -3502,41 +4226,83 @@ impl Interpreter {
         // splits(sep) - stream version of split using regex
         let sep = match self.eval_expr(sep_expr, input.clone(), ctx.clone()).next() {
             Some(Ok(Jv::String(s))) => s.as_str().to_string(),
-            Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("splits requires string separator, got {}", v.type_name())))),
+            Some(Ok(v)) => {
+                return Box::new(std::iter::once(Err(format!(
+                    "splits requires string separator, got {}",
+                    v.type_name()
+                ))))
+            }
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
             None => return Box::new(std::iter::empty()),
         };
 
         match &input {
-            Jv::String(s) => {
-                match regex::Regex::new(&sep) {
-                    Ok(re) => {
-                        let parts: Vec<Jv> = re.split(s.as_str())
-                            .map(|p| Jv::string(p))
-                            .collect();
-                        Box::new(parts.into_iter().map(Ok))
-                    }
-                    Err(e) => Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
+            Jv::String(s) => match regex::Regex::new(&sep) {
+                Ok(re) => {
+                    let parts: Vec<Jv> = re.split(s.as_str()).map(|p| Jv::string(p)).collect();
+                    Box::new(parts.into_iter().map(Ok))
                 }
-            }
-            _ => Box::new(std::iter::once(Err(format!("splits requires string input, got {}", input.type_name())))),
+                Err(e) => Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
+            },
+            _ => Box::new(std::iter::once(Err(format!(
+                "splits requires string input, got {}",
+                input.type_name()
+            )))),
         }
     }
 
     /// Evaluate sub/gsub with proper interpolation support
-    fn eval_sub(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
+    fn eval_sub(
+        &mut self,
+        pattern_expr: &Expr,
+        replacement_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+        global: bool,
+    ) -> EvalResult {
         self.eval_sub_impl(pattern_expr, replacement_expr, None, input, ctx, global)
     }
 
-    fn eval_sub_flags(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, flags_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
-        self.eval_sub_impl(pattern_expr, replacement_expr, Some(flags_expr), input, ctx, global)
+    fn eval_sub_flags(
+        &mut self,
+        pattern_expr: &Expr,
+        replacement_expr: &Expr,
+        flags_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+        global: bool,
+    ) -> EvalResult {
+        self.eval_sub_impl(
+            pattern_expr,
+            replacement_expr,
+            Some(flags_expr),
+            input,
+            ctx,
+            global,
+        )
     }
 
-    fn eval_sub_impl(&mut self, pattern_expr: &Expr, replacement_expr: &Expr, flags_expr: Option<&Expr>, input: Jv, ctx: Rc<RefCell<Context>>, global: bool) -> EvalResult {
+    fn eval_sub_impl(
+        &mut self,
+        pattern_expr: &Expr,
+        replacement_expr: &Expr,
+        flags_expr: Option<&Expr>,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+        global: bool,
+    ) -> EvalResult {
         // Evaluate pattern
-        let pattern = match self.eval_expr(pattern_expr, input.clone(), ctx.clone()).next() {
+        let pattern = match self
+            .eval_expr(pattern_expr, input.clone(), ctx.clone())
+            .next()
+        {
             Some(Ok(Jv::String(s))) => s.as_str().to_string(),
-            Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("sub/gsub pattern must be string, got {}", v.type_name())))),
+            Some(Ok(v)) => {
+                return Box::new(std::iter::once(Err(format!(
+                    "sub/gsub pattern must be string, got {}",
+                    v.type_name()
+                ))))
+            }
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
             None => return Box::new(std::iter::empty()),
         };
@@ -3545,7 +4311,12 @@ impl Interpreter {
         let flags = if let Some(flags_e) = flags_expr {
             match self.eval_expr(flags_e, input.clone(), ctx.clone()).next() {
                 Some(Ok(Jv::String(s))) => s.as_str().to_string(),
-                Some(Ok(v)) => return Box::new(std::iter::once(Err(format!("sub/gsub flags must be string, got {}", v.type_name())))),
+                Some(Ok(v)) => {
+                    return Box::new(std::iter::once(Err(format!(
+                        "sub/gsub flags must be string, got {}",
+                        v.type_name()
+                    ))))
+                }
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => String::new(),
             }
@@ -3574,12 +4345,24 @@ impl Interpreter {
 
         let s = match &input {
             Jv::String(s) => s.as_str().to_string(),
-            _ => return Box::new(std::iter::once(Err(format!("sub/gsub requires string input, got {}", input.type_name())))),
+            _ => {
+                return Box::new(std::iter::once(Err(format!(
+                    "sub/gsub requires string input, got {}",
+                    input.type_name()
+                ))))
+            }
         };
 
         // Check if we need fancy-regex for lookahead/lookbehind
         if crate::regex_helper::needs_fancy_regex(&regex_pattern) {
-            return self.eval_sub_impl_fancy(&regex_pattern, replacement_expr, &s, input, ctx, is_global);
+            return self.eval_sub_impl_fancy(
+                &regex_pattern,
+                replacement_expr,
+                &s,
+                input,
+                ctx,
+                is_global,
+            );
         }
 
         let re = match regex::Regex::new(&regex_pattern) {
@@ -3602,16 +4385,22 @@ impl Interpreter {
             // Check if we should add an empty match at the very end
             // jq/oniguruma includes an empty match at position len if the pattern can match there
             // but Rust regex only includes it if the previous match didn't end there
-            let last_end = all_caps.last().map(|c| c.get(0).unwrap().end()).unwrap_or(0);
+            let last_end = all_caps
+                .last()
+                .map(|c| c.get(0).unwrap().end())
+                .unwrap_or(0);
             if last_end == s.len() && !all_caps.is_empty() {
                 // Previous match ended exactly at the end of string
                 // Only add empty match if the pattern can match empty AND last match was non-empty
-                let last_was_nonempty = all_caps.last()
+                let last_was_nonempty = all_caps
+                    .last()
                     .map(|c| c.get(0).unwrap().end() > c.get(0).unwrap().start())
                     .unwrap_or(false);
                 if last_was_nonempty && re.is_match("") {
                     if let Some(caps) = re.captures_at(&s, s.len()) {
-                        if caps.get(0).unwrap().start() == s.len() && caps.get(0).unwrap().end() == s.len() {
+                        if caps.get(0).unwrap().start() == s.len()
+                            && caps.get(0).unwrap().end() == s.len()
+                        {
                             all_caps.push(caps);
                         }
                     }
@@ -3629,12 +4418,19 @@ impl Interpreter {
                 let capture_obj = self.build_capture_object(&caps, &capture_names);
 
                 // Collect ALL replacement values from evaluating the expression
-                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut inner = Interpreter {
+                    ctx: ctx_clone.clone(),
+                };
                 let mut replacements = Vec::new();
                 for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
                     match result {
                         Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
-                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Ok(v) => {
+                            return Box::new(std::iter::once(Err(format!(
+                                "sub/gsub replacement must produce string, got {}",
+                                v.type_name()
+                            ))))
+                        }
                         Err(e) => return Box::new(std::iter::once(Err(e))),
                     }
                 }
@@ -3647,7 +4443,11 @@ impl Interpreter {
             // Generate cartesian product of all replacement combinations
             // For simplicity, if there are multiple matches and multiple replacements,
             // we use the same replacement index for all matches
-            let max_replacements = caps_with_replacements.iter().map(|(_, r)| r.len()).max().unwrap_or(1);
+            let max_replacements = caps_with_replacements
+                .iter()
+                .map(|(_, r)| r.len())
+                .max()
+                .unwrap_or(1);
 
             let mut results = Vec::new();
             for repl_idx in 0..max_replacements {
@@ -3683,7 +4483,9 @@ impl Interpreter {
                 let capture_obj = self.build_capture_object(&caps, &capture_names);
 
                 // Collect ALL replacement values from evaluating the expression
-                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut inner = Interpreter {
+                    ctx: ctx_clone.clone(),
+                };
                 let mut results = Vec::new();
 
                 for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
@@ -3695,7 +4497,12 @@ impl Interpreter {
                             res.push_str(&s[m.end()..]);
                             results.push(Ok(Jv::string(res)));
                         }
-                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Ok(v) => {
+                            return Box::new(std::iter::once(Err(format!(
+                                "sub/gsub replacement must produce string, got {}",
+                                v.type_name()
+                            ))))
+                        }
                         Err(e) => return Box::new(std::iter::once(Err(e))),
                     }
                 }
@@ -3732,14 +4539,23 @@ impl Interpreter {
     }
 
     /// Fancy-regex version of sub/gsub for patterns with lookahead/lookbehind
-    fn eval_sub_impl_fancy(&mut self, regex_pattern: &str, replacement_expr: &Expr, s: &str, input: Jv, ctx: Rc<RefCell<Context>>, is_global: bool) -> EvalResult {
+    fn eval_sub_impl_fancy(
+        &mut self,
+        regex_pattern: &str,
+        replacement_expr: &Expr,
+        s: &str,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+        is_global: bool,
+    ) -> EvalResult {
         let re = match fancy_regex::Regex::new(regex_pattern) {
             Ok(r) => r,
             Err(e) => return Box::new(std::iter::once(Err(format!("invalid regex: {}", e)))),
         };
 
         // Get named capture groups
-        let capture_names: Vec<Option<String>> = re.capture_names().map(|n| n.map(String::from)).collect();
+        let capture_names: Vec<Option<String>> =
+            re.capture_names().map(|n| n.map(String::from)).collect();
 
         let replacement_expr = replacement_expr.clone();
         let ctx_clone = ctx.clone();
@@ -3768,12 +4584,19 @@ impl Interpreter {
                 let capture_obj = self.build_capture_object_fancy(&caps, &capture_names);
 
                 // Collect ALL replacement values from evaluating the expression
-                let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                let mut inner = Interpreter {
+                    ctx: ctx_clone.clone(),
+                };
                 let mut replacements = Vec::new();
                 for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
                     match result {
                         Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
-                        Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                        Ok(v) => {
+                            return Box::new(std::iter::once(Err(format!(
+                                "sub/gsub replacement must produce string, got {}",
+                                v.type_name()
+                            ))))
+                        }
                         Err(e) => return Box::new(std::iter::once(Err(e))),
                     }
                 }
@@ -3784,7 +4607,11 @@ impl Interpreter {
             }
 
             // Generate replacements
-            let max_replacements = caps_with_replacements.iter().map(|(_, r)| r.len()).max().unwrap_or(1);
+            let max_replacements = caps_with_replacements
+                .iter()
+                .map(|(_, r)| r.len())
+                .max()
+                .unwrap_or(1);
 
             let mut results = Vec::new();
             for repl_idx in 0..max_replacements {
@@ -3815,12 +4642,20 @@ impl Interpreter {
                     let capture_obj = self.build_capture_object_fancy(&caps, &capture_names);
 
                     // Collect all replacement values
-                    let mut inner = Interpreter { ctx: ctx_clone.clone() };
+                    let mut inner = Interpreter {
+                        ctx: ctx_clone.clone(),
+                    };
                     let mut replacements = Vec::new();
-                    for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone()) {
+                    for result in inner.eval_expr(&replacement_expr, capture_obj, ctx_clone.clone())
+                    {
                         match result {
                             Ok(Jv::String(repl)) => replacements.push(repl.as_str().to_string()),
-                            Ok(v) => return Box::new(std::iter::once(Err(format!("sub/gsub replacement must produce string, got {}", v.type_name())))),
+                            Ok(v) => {
+                                return Box::new(std::iter::once(Err(format!(
+                                    "sub/gsub replacement must produce string, got {}",
+                                    v.type_name()
+                                ))))
+                            }
                             Err(e) => return Box::new(std::iter::once(Err(e))),
                         }
                     }
@@ -3830,13 +4665,16 @@ impl Interpreter {
                     }
 
                     let m = caps.get(0).unwrap();
-                    let results: Vec<_> = replacements.into_iter().map(|repl| {
-                        let mut result = String::new();
-                        result.push_str(&s[..m.start()]);
-                        result.push_str(&repl);
-                        result.push_str(&s[m.end()..]);
-                        Ok(Jv::string(result))
-                    }).collect();
+                    let results: Vec<_> = replacements
+                        .into_iter()
+                        .map(|repl| {
+                            let mut result = String::new();
+                            result.push_str(&s[..m.start()]);
+                            result.push_str(&repl);
+                            result.push_str(&s[m.end()..]);
+                            Ok(Jv::string(result))
+                        })
+                        .collect();
 
                     Box::new(results.into_iter())
                 }
@@ -3850,7 +4688,11 @@ impl Interpreter {
     }
 
     /// Build a capture object from fancy-regex captures
-    fn build_capture_object_fancy(&self, caps: &fancy_regex::Captures, capture_names: &[Option<String>]) -> Jv {
+    fn build_capture_object_fancy(
+        &self,
+        caps: &fancy_regex::Captures,
+        capture_names: &[Option<String>],
+    ) -> Jv {
         let mut obj = crate::jv::JvObject::new();
 
         // Add named captures
@@ -3867,7 +4709,12 @@ impl Interpreter {
         Jv::Object(obj)
     }
 
-    fn eval_with_entries(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_with_entries(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // with_entries(f) = to_entries | map(f) | from_entries
         match &input {
             Jv::Object(obj) => {
@@ -3896,18 +4743,27 @@ impl Interpreter {
                 let mut result_obj = crate::jv::JvObject::new();
                 for entry in new_entries {
                     if let Jv::Object(e) = entry {
-                        if let (Some(Jv::String(key)), Some(value)) = (e.get("key"), e.get("value")) {
+                        if let (Some(Jv::String(key)), Some(value)) = (e.get("key"), e.get("value"))
+                        {
                             result_obj.set(key.as_str(), value);
                         }
                     }
                 }
                 Box::new(std::iter::once(Ok(Jv::Object(result_obj))))
             }
-            _ => Box::new(std::iter::once(Err(format!("with_entries requires object, got {}", input.type_name())))),
+            _ => Box::new(std::iter::once(Err(format!(
+                "with_entries requires object, got {}",
+                input.type_name()
+            )))),
         }
     }
 
-    fn eval_map_values(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_map_values(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // map_values(f) applies f to each value in an object or array
         match &input {
             Jv::Object(obj) => {
@@ -3935,13 +4791,21 @@ impl Interpreter {
                 Box::new(std::iter::once(Ok(Jv::from_vec(result))))
             }
             Jv::Null => Box::new(std::iter::once(Ok(Jv::Null))),
-            _ => Box::new(std::iter::once(Err(format!("map_values requires object or array, got {}", input.type_name())))),
+            _ => Box::new(std::iter::once(Err(format!(
+                "map_values requires object or array, got {}",
+                input.type_name()
+            )))),
         }
     }
 
     fn eval_path(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
         // path(expr) returns the path(s) to the value(s) selected by expr
-        fn collect_paths(expr: &Expr, input: &Jv, ctx: Rc<RefCell<Context>>, current_path: Vec<Jv>) -> Vec<Vec<Jv>> {
+        fn collect_paths(
+            expr: &Expr,
+            input: &Jv,
+            ctx: Rc<RefCell<Context>>,
+            current_path: Vec<Jv>,
+        ) -> Vec<Vec<Jv>> {
             let mut paths = Vec::new();
 
             match &expr.kind {
@@ -3953,7 +4817,11 @@ impl Interpreter {
                     new_path.push(Jv::string(name.clone()));
                     paths.push(new_path);
                 }
-                ExprKind::Index { expr: base_expr, index, .. } => {
+                ExprKind::Index {
+                    expr: base_expr,
+                    index,
+                    ..
+                } => {
                     // First collect paths from base expression
                     let base_paths = collect_paths(base_expr, input, ctx.clone(), current_path);
                     for base_path in base_paths {
@@ -3987,14 +4855,20 @@ impl Interpreter {
                                         ExprKind::Index { index, .. } => {
                                             // Evaluate index to get the access key
                                             let mut interp = Interpreter { ctx: ctx.clone() };
-                                            match interp.eval_expr(index, result_value.clone(), ctx.clone()).next() {
+                                            match interp
+                                                .eval_expr(index, result_value.clone(), ctx.clone())
+                                                .next()
+                                            {
                                                 Some(Ok(Jv::Number(n))) => {
                                                     format!("Invalid path expression near attempt to access element {} of {}", n, formatted)
                                                 }
                                                 Some(Ok(Jv::String(s))) => {
                                                     format!("Invalid path expression near attempt to access element \"{}\" of {}", s.as_str(), formatted)
                                                 }
-                                                _ => format!("Invalid path expression with result {}", formatted)
+                                                _ => format!(
+                                                    "Invalid path expression with result {}",
+                                                    formatted
+                                                ),
                                             }
                                         }
                                         ExprKind::Iterator { .. } => {
@@ -4003,7 +4877,10 @@ impl Interpreter {
                                         ExprKind::Field(name) => {
                                             format!("Invalid path expression near attempt to access element \"{}\" of {}", name, formatted)
                                         }
-                                        _ => format!("Invalid path expression with result {}", formatted)
+                                        _ => format!(
+                                            "Invalid path expression with result {}",
+                                            formatted
+                                        ),
                                     };
 
                                     // Create error marker with the specific message
@@ -4022,9 +4899,12 @@ impl Interpreter {
                         paths.extend(right_paths);
                     }
                 }
-                ExprKind::Iterator { expr: base_expr, .. } => {
+                ExprKind::Iterator {
+                    expr: base_expr, ..
+                } => {
                     // First collect paths from base expression
-                    let base_paths = collect_paths(base_expr, input, ctx.clone(), current_path.clone());
+                    let base_paths =
+                        collect_paths(base_expr, input, ctx.clone(), current_path.clone());
 
                     for base_path in base_paths {
                         // Check if this is an invalid path marker
@@ -4101,7 +4981,12 @@ impl Interpreter {
                 }
                 ExprKind::Comma(left, right) => {
                     // For comma, collect paths from both sides
-                    paths.extend(collect_paths(left, input, ctx.clone(), current_path.clone()));
+                    paths.extend(collect_paths(
+                        left,
+                        input,
+                        ctx.clone(),
+                        current_path.clone(),
+                    ));
                     paths.extend(collect_paths(right, input, ctx, current_path));
                 }
                 ExprKind::FunctionCall { name, args, .. } => {
@@ -4178,7 +5063,8 @@ impl Interpreter {
         }
 
         let all_paths = collect_paths(filter, &input, ctx, Vec::new());
-        let results: Vec<_> = all_paths.into_iter()
+        let results: Vec<_> = all_paths
+            .into_iter()
             .map(|p| {
                 // Check for invalid path marker
                 if p.len() >= 2 {
@@ -4196,7 +5082,10 @@ impl Interpreter {
                             let result_value = p.last().unwrap();
                             use crate::jv::print_jv;
                             let formatted = print_jv(result_value);
-                            return Err(format!("Invalid path expression with result {}", formatted));
+                            return Err(format!(
+                                "Invalid path expression with result {}",
+                                formatted
+                            ));
                         }
                     }
                 }
@@ -4206,7 +5095,12 @@ impl Interpreter {
         Box::new(results.into_iter())
     }
 
-    fn eval_paths_filter(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_paths_filter(
+        &mut self,
+        filter: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // paths(f) - returns paths to values where f is true
         fn collect_all_paths(value: &Jv, current_path: Vec<Jv>, results: &mut Vec<(Vec<Jv>, Jv)>) {
             results.push((current_path.clone(), value.clone()));
@@ -4282,7 +5176,11 @@ impl Interpreter {
 
             // Helper to determine what container type to create for a path
             fn make_container_for_path(path: &[Jv]) -> Jv {
-                if path.first().map(|k| matches!(k, Jv::Number(_))).unwrap_or(false) {
+                if path
+                    .first()
+                    .map(|k| matches!(k, Jv::Number(_)))
+                    .unwrap_or(false)
+                {
                     Jv::Array(crate::jv::JvArray::new())
                 } else {
                     Jv::Object(crate::jv::JvObject::new())
@@ -4296,7 +5194,8 @@ impl Interpreter {
                         if rest.is_empty() {
                             obj.set(k, value);
                         } else {
-                            let existing = obj.get(k).unwrap_or_else(|| make_container_for_path(rest));
+                            let existing =
+                                obj.get(k).unwrap_or_else(|| make_container_for_path(rest));
                             let mut nested = existing;
                             set_at_path(&mut nested, rest, value);
                             obj.set(k, nested);
@@ -4309,7 +5208,9 @@ impl Interpreter {
                         if rest.is_empty() {
                             let _ = arr.set(idx, value);
                         } else {
-                            let existing = arr.get(idx).unwrap_or_else(|| make_container_for_path(rest));
+                            let existing = arr
+                                .get(idx)
+                                .unwrap_or_else(|| make_container_for_path(rest));
                             let mut nested = existing;
                             set_at_path(&mut nested, rest, value);
                             let _ = arr.set(idx, nested);
@@ -4332,16 +5233,21 @@ impl Interpreter {
                 (Jv::Object(obj), Jv::String(k)) => {
                     obj.get(k.as_str()).and_then(|v| get_at_path(&v, rest))
                 }
-                (Jv::Array(arr), Jv::Number(n)) => {
-                    n.as_i64().and_then(|idx| arr.get(idx)).and_then(|v| get_at_path(&v, rest))
-                }
+                (Jv::Array(arr), Jv::Number(n)) => n
+                    .as_i64()
+                    .and_then(|idx| arr.get(idx))
+                    .and_then(|v| get_at_path(&v, rest)),
                 _ => None,
             }
         }
 
         // Determine the result type based on the input type and the paths
         // If all paths start with a numeric index, we need an array; otherwise object
-        let mut result = if paths.iter().all(|p| p.first().map(|k| matches!(k, Jv::Number(_))).unwrap_or(false)) {
+        let mut result = if paths.iter().all(|p| {
+            p.first()
+                .map(|k| matches!(k, Jv::Number(_)))
+                .unwrap_or(false)
+        }) {
             match &input {
                 Jv::Array(_) => Jv::Array(crate::jv::JvArray::new()),
                 _ => Jv::Object(crate::jv::JvObject::new()),
@@ -4356,7 +5262,9 @@ impl Interpreter {
                 if let Jv::Number(n) = key {
                     if let Some(idx) = n.as_i64() {
                         if idx < 0 {
-                            return Box::new(std::iter::once(Err("Out of bounds negative array index".to_string())));
+                            return Box::new(std::iter::once(Err(
+                                "Out of bounds negative array index".to_string(),
+                            )));
                         }
                     }
                 }
@@ -4369,7 +5277,12 @@ impl Interpreter {
         Box::new(std::iter::once(Ok(result)))
     }
 
-    fn eval_string_interp(&mut self, parts: &[StringPart], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_string_interp(
+        &mut self,
+        parts: &[StringPart],
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let mut result = String::new();
 
         for part in parts {
@@ -4378,15 +5291,13 @@ impl Interpreter {
                 StringPart::Interp(expr) => {
                     let mut inner = Interpreter { ctx: ctx.clone() };
                     match inner.eval_expr(expr, input.clone(), ctx.clone()).next() {
-                        Some(Ok(v)) => {
-                            match &v {
-                                Jv::String(s) => result.push_str(s.as_str()),
-                                _ => {
-                                    use crate::jv::print_jv;
-                                    result.push_str(&print_jv(&v));
-                                }
+                        Some(Ok(v)) => match &v {
+                            Jv::String(s) => result.push_str(s.as_str()),
+                            _ => {
+                                use crate::jv::print_jv;
+                                result.push_str(&print_jv(&v));
                             }
-                        }
+                        },
                         Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                         None => {}
                     }
@@ -4399,7 +5310,13 @@ impl Interpreter {
 
     /// Evaluate a format with a string template (e.g., @html "<b>\(.)</b>")
     /// The interpolated values are formatted, but literal parts are not.
-    fn eval_format_template(&mut self, format: &str, parts: &[StringPart], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_format_template(
+        &mut self,
+        format: &str,
+        parts: &[StringPart],
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         let format_name = format!("@{}", format);
         let mut result = String::new();
 
@@ -4424,8 +5341,12 @@ impl Interpreter {
                             if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
                                 let builtin_fn = *builtin;
                                 drop(ctx_mut);
-                                match builtin_fn(&mut Context::new(), Jv::string(str_val), &[]).next() {
-                                    Some(Ok(Jv::String(formatted))) => result.push_str(formatted.as_str()),
+                                match builtin_fn(&mut Context::new(), Jv::string(str_val), &[])
+                                    .next()
+                                {
+                                    Some(Ok(Jv::String(formatted))) => {
+                                        result.push_str(formatted.as_str())
+                                    }
                                     Some(Ok(other)) => {
                                         use crate::jv::print_jv;
                                         result.push_str(&print_jv(&other));
@@ -4434,7 +5355,10 @@ impl Interpreter {
                                     None => {}
                                 }
                             } else {
-                                return Box::new(std::iter::once(Err(format!("unknown format: {}", format_name))));
+                                return Box::new(std::iter::once(Err(format!(
+                                    "unknown format: {}",
+                                    format_name
+                                ))));
                             }
                         }
                         Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
@@ -4481,7 +5405,9 @@ impl Interpreter {
                                 return Box::new(std::iter::once(Err(msg.to_string())));
                             }
                         }
-                        return Box::new(std::iter::once(Err("Invalid path expression".to_string())));
+                        return Box::new(std::iter::once(Err(
+                            "Invalid path expression".to_string()
+                        )));
                     }
                 }
             }
@@ -4491,7 +5417,10 @@ impl Interpreter {
 
             // Apply the update expression to the current value
             let mut update_interp = Interpreter { ctx: ctx.clone() };
-            let new_value = match update_interp.eval_expr(update, current_value, ctx.clone()).next() {
+            let new_value = match update_interp
+                .eval_expr(update, current_value, ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) => v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => {
@@ -4512,7 +5441,12 @@ impl Interpreter {
     }
 
     /// Collect all paths from a target expression for update operations
-    fn collect_paths_for_update(&mut self, expr: &Expr, input: &Jv, ctx: Rc<RefCell<Context>>) -> Vec<Vec<Jv>> {
+    fn collect_paths_for_update(
+        &mut self,
+        expr: &Expr,
+        input: &Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> Vec<Vec<Jv>> {
         let mut paths = Vec::new();
         self.collect_paths_recursive(expr, input, ctx, Vec::new(), &mut paths);
         paths
@@ -4538,10 +5472,20 @@ impl Interpreter {
                 paths.push(new_path);
             }
 
-            ExprKind::Index { expr: base_expr, index, .. } => {
+            ExprKind::Index {
+                expr: base_expr,
+                index,
+                ..
+            } => {
                 // First collect paths from base expression
                 let mut base_paths = Vec::new();
-                self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
+                self.collect_paths_recursive(
+                    base_expr,
+                    input,
+                    ctx.clone(),
+                    current_path,
+                    &mut base_paths,
+                );
 
                 for base_path in base_paths {
                     // Check for invalid path marker
@@ -4570,10 +5514,18 @@ impl Interpreter {
                 }
             }
 
-            ExprKind::Iterator { expr: base_expr, .. } => {
+            ExprKind::Iterator {
+                expr: base_expr, ..
+            } => {
                 // First collect paths from base expression
                 let mut base_paths = Vec::new();
-                self.collect_paths_recursive(base_expr, input, ctx.clone(), current_path, &mut base_paths);
+                self.collect_paths_recursive(
+                    base_expr,
+                    input,
+                    ctx.clone(),
+                    current_path,
+                    &mut base_paths,
+                );
 
                 for base_path in base_paths {
                     // Check for invalid path marker and convert to iterator error
@@ -4625,7 +5577,13 @@ impl Interpreter {
             ExprKind::Pipe(left, right) => {
                 // For pipes, collect paths from left, then continue with right
                 let mut left_paths = Vec::new();
-                self.collect_paths_recursive(left, input, ctx.clone(), current_path, &mut left_paths);
+                self.collect_paths_recursive(
+                    left,
+                    input,
+                    ctx.clone(),
+                    current_path,
+                    &mut left_paths,
+                );
 
                 for left_path in left_paths {
                     // Navigate to the value at left path
@@ -4650,11 +5608,21 @@ impl Interpreter {
                 self.collect_paths_recursive(inner, input, ctx, current_path, paths);
             }
 
-            ExprKind::FunctionCall { module: None, name, args } if args.is_empty() => {
+            ExprKind::FunctionCall {
+                module: None,
+                name,
+                args,
+            } if args.is_empty() => {
                 // Zero-argument function call might be a bound expression (parameter reference)
                 if let Some((bound_expr, bound_ctx)) = ctx.borrow().lookup_expr_with_context(name) {
                     // This is a bound expression - recursively collect paths from it
-                    self.collect_paths_recursive(&bound_expr, input, bound_ctx, current_path, paths);
+                    self.collect_paths_recursive(
+                        &bound_expr,
+                        input,
+                        bound_ctx,
+                        current_path,
+                        paths,
+                    );
                     return;
                 }
 
@@ -4669,17 +5637,27 @@ impl Interpreter {
                 }
             }
 
-            ExprKind::FunctionCall { module: None, name, args } if args.len() == 1 && name == "select" => {
+            ExprKind::FunctionCall {
+                module: None,
+                name,
+                args,
+            } if args.len() == 1 && name == "select" => {
                 // select(cond): returns current path if condition is true
                 let mut interp = Interpreter { ctx: ctx.clone() };
                 let value_at_path = get_value_at_path(input, &current_path);
-                if let Some(Ok(Jv::Bool(true))) = interp.eval_expr(&args[0], value_at_path, ctx).next() {
+                if let Some(Ok(Jv::Bool(true))) =
+                    interp.eval_expr(&args[0], value_at_path, ctx).next()
+                {
                     paths.push(current_path);
                 }
                 // If condition is false or error, don't include this path
             }
 
-            ExprKind::FunctionCall { module: None, name, args } if args.len() == 1 && name == "getpath" => {
+            ExprKind::FunctionCall {
+                module: None,
+                name,
+                args,
+            } if args.len() == 1 && name == "getpath" => {
                 // getpath(path_expr) - evaluate path_expr and use result as path
                 let mut interp = Interpreter { ctx: ctx.clone() };
                 let value_at_path = get_value_at_path(input, &current_path);
@@ -4697,12 +5675,38 @@ impl Interpreter {
             }
 
             // Handle transforming functions that don't preserve paths (map, sort, reverse, etc.)
-            ExprKind::FunctionCall { module: None, name, args }
-                if matches!(name.as_str(), "map" | "map_values" | "sort" | "sort_by" |
-                           "reverse" | "group_by" | "unique" | "unique_by" | "flatten" |
-                           "add" | "min" | "max" | "min_by" | "max_by" | "keys" | "keys_unsorted" |
-                           "values" | "to_entries" | "from_entries" | "with_entries" |
-                           "transpose" | "combinations" | "range" | "split" | "join") =>
+            ExprKind::FunctionCall {
+                module: None,
+                name,
+                args,
+            } if matches!(
+                name.as_str(),
+                "map"
+                    | "map_values"
+                    | "sort"
+                    | "sort_by"
+                    | "reverse"
+                    | "group_by"
+                    | "unique"
+                    | "unique_by"
+                    | "flatten"
+                    | "add"
+                    | "min"
+                    | "max"
+                    | "min_by"
+                    | "max_by"
+                    | "keys"
+                    | "keys_unsorted"
+                    | "values"
+                    | "to_entries"
+                    | "from_entries"
+                    | "with_entries"
+                    | "transpose"
+                    | "combinations"
+                    | "range"
+                    | "split"
+                    | "join"
+            ) =>
             {
                 // These functions transform data and don't preserve paths to the original input
                 // Evaluate the function and mark as invalid path
@@ -4718,7 +5722,9 @@ impl Interpreter {
                     span: expr.span,
                 };
 
-                if let Some(Ok(result)) = interp.eval_expr(&func_call_expr, value_at_path, ctx).next() {
+                if let Some(Ok(result)) =
+                    interp.eval_expr(&func_call_expr, value_at_path, ctx).next()
+                {
                     // Create an invalid path marker with the result
                     let mut error_path = Vec::new();
                     error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
@@ -4891,7 +5897,9 @@ impl Interpreter {
             // If there's a filter, check if value passes
             if let Some(filter_expr) = filter {
                 let mut filter_interp = Interpreter { ctx: ctx.clone() };
-                let filter_result = filter_interp.eval_expr(filter_expr, value_at_path.clone(), ctx.clone()).next();
+                let filter_result = filter_interp
+                    .eval_expr(filter_expr, value_at_path.clone(), ctx.clone())
+                    .next();
 
                 match filter_result {
                     Some(Ok(_)) => {
@@ -4911,7 +5919,10 @@ impl Interpreter {
                 let mut path_interp = Interpreter { ctx: ctx.clone() };
 
                 // First evaluate path_expr to get the value we're updating
-                let value_to_update = match path_interp.eval_expr(pe, value_at_path.clone(), ctx.clone()).next() {
+                let value_to_update = match path_interp
+                    .eval_expr(pe, value_at_path.clone(), ctx.clone())
+                    .next()
+                {
                     Some(Ok(v)) => v,
                     Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                     None => continue, // Path produced no output
@@ -4925,10 +5936,15 @@ impl Interpreter {
                         p.push(Jv::string(name));
                         p
                     }
-                    ExprKind::Index { expr: base, index, .. } if matches!(base.kind, ExprKind::Identity) => {
+                    ExprKind::Index {
+                        expr: base, index, ..
+                    } if matches!(base.kind, ExprKind::Identity) => {
                         // .[index] - evaluate index and add to path
                         let mut idx_interp = Interpreter { ctx: ctx.clone() };
-                        match idx_interp.eval_expr(index, value_at_path.clone(), ctx.clone()).next() {
+                        match idx_interp
+                            .eval_expr(index, value_at_path.clone(), ctx.clone())
+                            .next()
+                        {
                             Some(Ok(idx_val)) => {
                                 let mut p = path.clone();
                                 p.push(idx_val);
@@ -4951,7 +5967,10 @@ impl Interpreter {
 
             // Apply value expression
             let mut val_interp = Interpreter { ctx: ctx.clone() };
-            let new_value = match val_interp.eval_expr(value_expr, update_value, ctx.clone()).next() {
+            let new_value = match val_interp
+                .eval_expr(value_expr, update_value, ctx.clone())
+                .next()
+            {
                 Some(Ok(v)) => v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
                 None => continue, // Empty update - skip
@@ -4993,7 +6012,13 @@ impl Interpreter {
                     let mut arr = match current {
                         Jv::Array(a) => a.clone(),
                         Jv::Null => crate::jv::JvArray::new(),
-                        _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
+                        _ => {
+                            return Err(format!(
+                                "Cannot index {} with number ({})",
+                                current.type_name(),
+                                idx
+                            ))
+                        }
                     };
                     let normalized_idx = if idx < 0 { arr.len() as i64 + idx } else { idx };
                     let child = arr.get(normalized_idx).unwrap_or(Jv::Null);
@@ -5009,52 +6034,70 @@ impl Interpreter {
     }
 
     /// Evaluate truncate_stream(stream_generator)
-    fn eval_truncate_stream(&mut self, stream_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_truncate_stream(
+        &mut self,
+        stream_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // input is the depth
         let depth = match &input {
             Jv::Number(n) => n.as_i64().unwrap_or(0) as usize,
-            _ => return Box::new(std::iter::once(Err(format!("truncate_stream depth must be number, got {}", input.type_name())))),
+            _ => {
+                return Box::new(std::iter::once(Err(format!(
+                    "truncate_stream depth must be number, got {}",
+                    input.type_name()
+                ))))
+            }
         };
 
         // Evaluate the stream expression to get stream items
         let stream_items: Vec<_> = self.eval_expr(stream_expr, Jv::Null, ctx.clone()).collect();
 
-        let results: Vec<_> = stream_items.into_iter().filter_map(|item| {
-            match item {
-                Ok(Jv::Array(arr)) if !arr.is_empty() => {
-                    // Get the path (first element)
-                    let path = match arr.get(0) {
-                        Some(Jv::Array(p)) => p,
-                        _ => return None,
-                    };
+        let results: Vec<_> = stream_items
+            .into_iter()
+            .filter_map(|item| {
+                match item {
+                    Ok(Jv::Array(arr)) if !arr.is_empty() => {
+                        // Get the path (first element)
+                        let path = match arr.get(0) {
+                            Some(Jv::Array(p)) => p,
+                            _ => return None,
+                        };
 
-                    // Skip if path is too short to truncate
-                    if path.len() <= depth {
-                        return None;
+                        // Skip if path is too short to truncate
+                        if path.len() <= depth {
+                            return None;
+                        }
+
+                        // Truncate the path
+                        let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
+
+                        if arr.len() == 1 {
+                            // End marker
+                            Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
+                        } else {
+                            // Value entry
+                            let value = arr.get(1).unwrap_or(Jv::Null);
+                            Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
+                        }
                     }
-
-                    // Truncate the path
-                    let truncated_path: Vec<Jv> = path.iter().skip(depth).collect();
-
-                    if arr.len() == 1 {
-                        // End marker
-                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path)])))
-                    } else {
-                        // Value entry
-                        let value = arr.get(1).unwrap_or(Jv::Null);
-                        Some(Ok(Jv::from_vec(vec![Jv::from_vec(truncated_path), value])))
-                    }
+                    Err(e) => Some(Err(e)),
+                    _ => None,
                 }
-                Err(e) => Some(Err(e)),
-                _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         Box::new(results.into_iter())
     }
 
     /// Evaluate fromstream(stream_generator)
-    fn eval_fromstream(&mut self, stream_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+    fn eval_fromstream(
+        &mut self,
+        stream_expr: &Expr,
+        input: Jv,
+        ctx: Rc<RefCell<Context>>,
+    ) -> EvalResult {
         // Evaluate the stream expression to get stream items
         let stream_items: Vec<_> = self.eval_expr(stream_expr, input, ctx.clone()).collect();
 
@@ -5071,7 +6114,8 @@ impl Interpreter {
                     let value = arr.get(1).unwrap_or(Jv::Null);
 
                     // Set value at path
-                    result = Self::setpath_at(&result, &path.iter().collect::<Vec<_>>(), value).unwrap_or(result);
+                    result = Self::setpath_at(&result, &path.iter().collect::<Vec<_>>(), value)
+                        .unwrap_or(result);
                 }
                 Ok(Jv::Array(_)) => {
                     // [path] - end marker, ignore
@@ -5123,11 +6167,16 @@ impl Interpreter {
         let container = match self.eval_expr(base_expr, input.clone(), ctx.clone()).next() {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-            None => return Box::new(std::iter::once(Err("base expression produced no value".to_string()))),
+            None => {
+                return Box::new(std::iter::once(Err(
+                    "base expression produced no value".to_string()
+                )))
+            }
         };
 
         // Evaluate all indices from the generator
-        let indices: Vec<i64> = self.eval_expr(idx_expr, input.clone(), ctx.clone())
+        let indices: Vec<i64> = self
+            .eval_expr(idx_expr, input.clone(), ctx.clone())
             .filter_map(|r| r.ok())
             .filter_map(|v| v.as_i64())
             .collect();
@@ -5147,7 +6196,8 @@ impl Interpreter {
 
                         // Apply the value expression to the element
                         let mut val_interp = Interpreter { ctx: ctx.clone() };
-                        let update_result = val_interp.eval_expr(value_expr, elem, ctx.clone()).next();
+                        let update_result =
+                            val_interp.eval_expr(value_expr, elem, ctx.clone()).next();
 
                         match update_result {
                             Some(Ok(_)) => {
@@ -5174,12 +6224,16 @@ impl Interpreter {
 
                 // Set the result back at the base path
                 let mut path_parts: Vec<Jv> = Vec::new();
-                match Self::apply_assignment(input, base_expr, new_container, &mut path_parts, ctx) {
+                match Self::apply_assignment(input, base_expr, new_container, &mut path_parts, ctx)
+                {
                     Ok(v) => Box::new(std::iter::once(Ok(v))),
                     Err(e) => Box::new(std::iter::once(Err(e))),
                 }
             }
-            _ => Box::new(std::iter::once(Err(format!("Cannot index {} with generators", container.type_name())))),
+            _ => Box::new(std::iter::once(Err(format!(
+                "Cannot index {} with generators",
+                container.type_name()
+            )))),
         }
     }
 
@@ -5199,12 +6253,19 @@ impl Interpreter {
             match self.eval_expr(iter_base, input.clone(), ctx.clone()).next() {
                 Some(Ok(v)) => v,
                 Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
-                None => return Box::new(std::iter::once(Err("iterator base produced no value".to_string()))),
+                None => {
+                    return Box::new(std::iter::once(Err(
+                        "iterator base produced no value".to_string()
+                    )))
+                }
             }
         };
 
         // Evaluate the right-hand value once
-        let right_val = match self.eval_expr(value_expr, input.clone(), ctx.clone()).next() {
+        let right_val = match self
+            .eval_expr(value_expr, input.clone(), ctx.clone())
+            .next()
+        {
             Some(Ok(v)) => v,
             Some(Err(e)) => return Box::new(std::iter::once(Err(e))),
             None => return Box::new(std::iter::empty()),
@@ -5228,7 +6289,13 @@ impl Interpreter {
                 } else {
                     // Set the new container back at the base path
                     let mut path_parts: Vec<Jv> = Vec::new();
-                    match Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx) {
+                    match Self::apply_assignment(
+                        input,
+                        iter_base,
+                        new_container,
+                        &mut path_parts,
+                        ctx,
+                    ) {
                         Ok(v) => Box::new(std::iter::once(Ok(v))),
                         Err(e) => Box::new(std::iter::once(Err(e))),
                     }
@@ -5251,13 +6318,22 @@ impl Interpreter {
                 } else {
                     // Set the new container back at the base path
                     let mut path_parts: Vec<Jv> = Vec::new();
-                    match Self::apply_assignment(input, iter_base, new_container, &mut path_parts, ctx) {
+                    match Self::apply_assignment(
+                        input,
+                        iter_base,
+                        new_container,
+                        &mut path_parts,
+                        ctx,
+                    ) {
                         Ok(v) => Box::new(std::iter::once(Ok(v))),
                         Err(e) => Box::new(std::iter::once(Err(e))),
                     }
                 }
             }
-            _ => Box::new(std::iter::once(Err(format!("Cannot iterate over {}", container.type_name())))),
+            _ => Box::new(std::iter::once(Err(format!(
+                "Cannot iterate over {}",
+                container.type_name()
+            )))),
         }
     }
 
@@ -5288,10 +6364,18 @@ impl Interpreter {
                         obj.set(name, value);
                         Ok(Jv::Object(obj))
                     }
-                    _ => Err(format!("Cannot index {} with string \"{}\"", current.type_name(), name)),
+                    _ => Err(format!(
+                        "Cannot index {} with string \"{}\"",
+                        current.type_name(),
+                        name
+                    )),
                 }
             }
-            ExprKind::Index { expr: base, index, optional: _ } => {
+            ExprKind::Index {
+                expr: base,
+                index,
+                optional: _,
+            } => {
                 // For nested assignments like .foo.bar = value or .foo[0] = value
                 // We need to:
                 // 1. Get the current value at base
@@ -5300,7 +6384,9 @@ impl Interpreter {
 
                 // Evaluate the index - collect all values for comma expressions
                 let mut idx_interp = Interpreter { ctx: ctx.clone() };
-                let idx_results: Vec<_> = idx_interp.eval_expr(index, current.clone(), ctx.clone()).collect();
+                let idx_results: Vec<_> = idx_interp
+                    .eval_expr(index, current.clone(), ctx.clone())
+                    .collect();
 
                 if idx_results.is_empty() {
                     return Err("index evaluation produced no value".to_string());
@@ -5318,24 +6404,29 @@ impl Interpreter {
                             };
 
                             match &idx_val {
-                                Jv::String(s) => {
-                                    match result {
-                                        Jv::Object(mut obj) => {
-                                            obj.set(s.as_str(), value.clone());
-                                            result = Jv::Object(obj);
-                                        }
-                                        Jv::Null => {
-                                            let mut obj = JvObject::new();
-                                            obj.set(s.as_str(), value.clone());
-                                            result = Jv::Object(obj);
-                                        }
-                                        _ => return Err(format!("Cannot index {} with string", result.type_name())),
+                                Jv::String(s) => match result {
+                                    Jv::Object(mut obj) => {
+                                        obj.set(s.as_str(), value.clone());
+                                        result = Jv::Object(obj);
                                     }
-                                }
+                                    Jv::Null => {
+                                        let mut obj = JvObject::new();
+                                        obj.set(s.as_str(), value.clone());
+                                        result = Jv::Object(obj);
+                                    }
+                                    _ => {
+                                        return Err(format!(
+                                            "Cannot index {} with string",
+                                            result.type_name()
+                                        ))
+                                    }
+                                },
                                 Jv::Number(n) => {
                                     // NaN index in assignment is an error
                                     if n.is_nan() {
-                                        return Err("Cannot set array element at NaN index".to_string());
+                                        return Err(
+                                            "Cannot set array element at NaN index".to_string()
+                                        );
                                     }
                                     // jq truncates float indices using floor
                                     let idx = if let Some(i) = n.as_i64() {
@@ -5348,23 +6439,36 @@ impl Interpreter {
                                             let len = arr.len() as i64;
                                             let actual_idx = if idx < 0 { len + idx } else { idx };
                                             if actual_idx < 0 {
-                                                return Err("Out of bounds negative array index".to_string());
+                                                return Err("Out of bounds negative array index"
+                                                    .to_string());
                                             }
                                             arr.set(actual_idx, value.clone())?;
                                             result = Jv::Array(arr);
                                         }
                                         Jv::Null => {
                                             if idx < 0 {
-                                                return Err("Out of bounds negative array index".to_string());
+                                                return Err("Out of bounds negative array index"
+                                                    .to_string());
                                             }
                                             let mut arr = JvArray::new();
                                             arr.set(idx, value.clone())?;
                                             result = Jv::Array(arr);
                                         }
-                                        _ => return Err(format!("Cannot index {} with number ({})", result.type_name(), idx)),
+                                        _ => {
+                                            return Err(format!(
+                                                "Cannot index {} with number ({})",
+                                                result.type_name(),
+                                                idx
+                                            ))
+                                        }
                                     }
                                 }
-                                _ => return Err(format!("Cannot use {} as index", idx_val.type_name())),
+                                _ => {
+                                    return Err(format!(
+                                        "Cannot use {} as index",
+                                        idx_val.type_name()
+                                    ))
+                                }
                             }
                         }
                         Ok(result)
@@ -5380,7 +6484,10 @@ impl Interpreter {
                             };
 
                             let mut base_interp = Interpreter { ctx: ctx.clone() };
-                            let base_val = match base_interp.eval_expr(base, result.clone(), ctx.clone()).next() {
+                            let base_val = match base_interp
+                                .eval_expr(base, result.clone(), ctx.clone())
+                                .next()
+                            {
                                 Some(Ok(v)) => v,
                                 Some(Err(e)) => return Err(e),
                                 None => Jv::Null,
@@ -5388,9 +6495,20 @@ impl Interpreter {
 
                             // Create a literal index expression for this specific index
                             let idx_literal = match &idx_val {
-                                Jv::Number(n) => Expr::new(ExprKind::Literal(Literal::Number(n.as_f64())), target.span),
-                                Jv::String(s) => Expr::new(ExprKind::Literal(Literal::String(s.as_str().to_string())), target.span),
-                                _ => return Err(format!("Cannot use {} as index", idx_val.type_name())),
+                                Jv::Number(n) => Expr::new(
+                                    ExprKind::Literal(Literal::Number(n.as_f64())),
+                                    target.span,
+                                ),
+                                Jv::String(s) => Expr::new(
+                                    ExprKind::Literal(Literal::String(s.as_str().to_string())),
+                                    target.span,
+                                ),
+                                _ => {
+                                    return Err(format!(
+                                        "Cannot use {} as index",
+                                        idx_val.type_name()
+                                    ))
+                                }
                             };
 
                             // Apply inner assignment
@@ -5402,16 +6520,31 @@ impl Interpreter {
                                 },
                                 target.span,
                             );
-                            let modified_base = Self::apply_assignment(base_val, &inner_target, value.clone(), _path, ctx.clone())?;
+                            let modified_base = Self::apply_assignment(
+                                base_val,
+                                &inner_target,
+                                value.clone(),
+                                _path,
+                                ctx.clone(),
+                            )?;
 
                             // Now set modified base back to parent
-                            result = Self::apply_assignment(result, base, modified_base, _path, ctx.clone())?;
+                            result = Self::apply_assignment(
+                                result,
+                                base,
+                                modified_base,
+                                _path,
+                                ctx.clone(),
+                            )?;
                         }
                         Ok(result)
                     }
                 }
             }
-            ExprKind::Iterator { expr: base, optional: _ } => {
+            ExprKind::Iterator {
+                expr: base,
+                optional: _,
+            } => {
                 // .[] = value - set all elements to value
                 match &base.kind {
                     ExprKind::Identity => {
@@ -5419,7 +6552,8 @@ impl Interpreter {
                         match current {
                             Jv::Array(arr) => {
                                 // Replace all elements with value
-                                let new_arr: Vec<Jv> = (0..arr.len()).map(|_| value.clone()).collect();
+                                let new_arr: Vec<Jv> =
+                                    (0..arr.len()).map(|_| value.clone()).collect();
                                 Ok(Jv::from_vec(new_arr))
                             }
                             Jv::Object(obj) => {
@@ -5443,7 +6577,10 @@ impl Interpreter {
                             if !matches!(name.as_str(), "getpath" | "first" | "last") {
                                 // Evaluate to get the result value for the error message
                                 let mut base_interp = Interpreter { ctx: ctx.clone() };
-                                if let Some(Ok(result)) = base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                                if let Some(Ok(result)) = base_interp
+                                    .eval_expr(base, current.clone(), ctx.clone())
+                                    .next()
+                                {
                                     use crate::jv::print_jv;
                                     let formatted = print_jv(&result);
                                     return Err(format!("Invalid path expression near attempt to iterate through {}", formatted));
@@ -5453,7 +6590,10 @@ impl Interpreter {
 
                         // Nested: get base value, apply iterator assignment, set back
                         let mut base_interp = Interpreter { ctx: ctx.clone() };
-                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                        let base_val = match base_interp
+                            .eval_expr(base, current.clone(), ctx.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => Jv::Null,
@@ -5467,14 +6607,25 @@ impl Interpreter {
                             },
                             target.span,
                         );
-                        let modified_base = Self::apply_assignment(base_val, &inner_target, value, _path, ctx.clone())?;
+                        let modified_base = Self::apply_assignment(
+                            base_val,
+                            &inner_target,
+                            value,
+                            _path,
+                            ctx.clone(),
+                        )?;
 
                         // Now set modified base back to parent
                         Self::apply_assignment(current, base, modified_base, _path, ctx)
                     }
                 }
             }
-            ExprKind::Slice { expr: base, start, end, optional: _ } => {
+            ExprKind::Slice {
+                expr: base,
+                start,
+                end,
+                optional: _,
+            } => {
                 // .[start:end] = value - slice assignment
                 let mut interp = Interpreter { ctx: ctx.clone() };
 
@@ -5498,7 +6649,10 @@ impl Interpreter {
 
                 // Evaluate start and end indices
                 let start_val = if let Some(start_expr) = start {
-                    match interp.eval_expr(start_expr, current.clone(), ctx.clone()).next() {
+                    match interp
+                        .eval_expr(start_expr, current.clone(), ctx.clone())
+                        .next()
+                    {
                         Some(Ok(Jv::Number(n))) => number_to_start(&n),
                         Some(Err(e)) => return Err(e),
                         _ => 0,
@@ -5508,7 +6662,10 @@ impl Interpreter {
                 };
 
                 let end_val = if let Some(end_expr) = end {
-                    match interp.eval_expr(end_expr, current.clone(), ctx.clone()).next() {
+                    match interp
+                        .eval_expr(end_expr, current.clone(), ctx.clone())
+                        .next()
+                    {
                         Some(Ok(Jv::Number(n))) => number_to_end(&n),
                         Some(Err(e)) => return Err(e),
                         _ => None,
@@ -5568,7 +6725,10 @@ impl Interpreter {
                     _ => {
                         // Nested slice: get base value, modify, set back
                         let mut base_interp = Interpreter { ctx: ctx.clone() };
-                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                        let base_val = match base_interp
+                            .eval_expr(base, current.clone(), ctx.clone())
+                            .next()
+                        {
                             Some(Ok(v)) => v,
                             Some(Err(e)) => return Err(e),
                             None => return Err("base expression produced no value".to_string()),
@@ -5587,7 +6747,13 @@ impl Interpreter {
                             },
                             span: target.span,
                         };
-                        let modified_base = Self::apply_assignment(base_val, &inner_target, value, _path, ctx.clone())?;
+                        let modified_base = Self::apply_assignment(
+                            base_val,
+                            &inner_target,
+                            value,
+                            _path,
+                            ctx.clone(),
+                        )?;
                         Self::apply_assignment(current, base, modified_base, _path, ctx)
                     }
                 }
@@ -5595,7 +6761,10 @@ impl Interpreter {
             ExprKind::Pipe(left, right) => {
                 // For piped paths like .foo | .bar = value
                 let mut left_interp = Interpreter { ctx: ctx.clone() };
-                let left_val = match left_interp.eval_expr(left, current.clone(), ctx.clone()).next() {
+                let left_val = match left_interp
+                    .eval_expr(left, current.clone(), ctx.clone())
+                    .next()
+                {
                     Some(Ok(v)) => v,
                     Some(Err(e)) => return Err(e),
                     None => return Err("pipe left side produced no value".to_string()),
@@ -5608,13 +6777,20 @@ impl Interpreter {
                 // Unwrap parentheses
                 Self::apply_assignment(current, inner, value, _path, ctx)
             }
-            ExprKind::Binding { expr: bind_expr, pattern, body } => {
+            ExprKind::Binding {
+                expr: bind_expr,
+                pattern,
+                body,
+            } => {
                 // For (.a as $x | .b) = value
                 // 1. Evaluate bind_expr to get binding value
                 // 2. Create context with binding
                 // 3. Apply assignment to body
                 let mut bind_interp = Interpreter { ctx: ctx.clone() };
-                let bind_val = match bind_interp.eval_expr(bind_expr, current.clone(), ctx.clone()).next() {
+                let bind_val = match bind_interp
+                    .eval_expr(bind_expr, current.clone(), ctx.clone())
+                    .next()
+                {
                     Some(Ok(v)) => v,
                     Some(Err(e)) => return Err(e),
                     None => return Err("binding expression produced no value".to_string()),
@@ -5622,7 +6798,9 @@ impl Interpreter {
 
                 // Create child context with binding
                 let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
-                let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                let mut bind_inner = Interpreter {
+                    ctx: child_ctx.clone(),
+                };
                 bind_inner.bind_pattern(pattern, &bind_val, &child_ctx)?;
 
                 // Apply assignment to body in child context
@@ -5631,7 +6809,10 @@ impl Interpreter {
             ExprKind::FunctionCall { name, args, .. } if name == "getpath" && args.len() == 1 => {
                 // getpath(path) = value is equivalent to setpath(path; value)
                 let mut interp = Interpreter { ctx: ctx.clone() };
-                let path_val = match interp.eval_expr(&args[0], current.clone(), ctx.clone()).next() {
+                let path_val = match interp
+                    .eval_expr(&args[0], current.clone(), ctx.clone())
+                    .next()
+                {
                     Some(Ok(v)) => v,
                     Some(Err(e)) => return Err(e),
                     None => return Err("getpath argument produced no value".to_string()),
@@ -5648,7 +6829,7 @@ impl Interpreter {
                 let components: Vec<Jv> = path_arr.iter().collect();
 
                 fn set_path(current: Jv, path: &[Jv], value: Jv) -> Result<Jv, String> {
-                    use crate::jv::{JvObject, JvArray};
+                    use crate::jv::{JvArray, JvObject};
 
                     if path.is_empty() {
                         return Ok(value);
@@ -5663,7 +6844,13 @@ impl Interpreter {
                             let mut obj = match current {
                                 Jv::Object(o) => o,
                                 Jv::Null => JvObject::new(),
-                                _ => return Err(format!("Cannot index {} with string \"{}\"", current.type_name(), s.as_str())),
+                                _ => {
+                                    return Err(format!(
+                                        "Cannot index {} with string \"{}\"",
+                                        current.type_name(),
+                                        s.as_str()
+                                    ))
+                                }
                             };
                             let child = obj.get(s.as_str()).unwrap_or(Jv::Null);
                             let new_child = set_path(child, rest, value)?;
@@ -5680,7 +6867,13 @@ impl Interpreter {
                             let mut arr = match current {
                                 Jv::Array(a) => a,
                                 Jv::Null => JvArray::new(),
-                                _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
+                                _ => {
+                                    return Err(format!(
+                                        "Cannot index {} with number ({})",
+                                        current.type_name(),
+                                        idx
+                                    ))
+                                }
                             };
                             let child = arr.get(idx).unwrap_or(Jv::Null);
                             let new_child = set_path(child, rest, value)?;
@@ -5707,10 +6900,20 @@ impl Interpreter {
                         let borrowed = ctx.borrow();
                         borrowed.lookup(&func_key)
                     };
-                    if let Some(Binding::FilterClosure { def, ctx: closure_ctx }) = func_binding {
+                    if let Some(Binding::FilterClosure {
+                        def,
+                        ctx: closure_ctx,
+                    }) = func_binding
+                    {
                         // This is a user-defined function - evaluate its body as the target
                         // The body expression becomes the path we're assigning to
-                        return Self::apply_assignment(current, &def.body, value, _path, closure_ctx);
+                        return Self::apply_assignment(
+                            current,
+                            &def.body,
+                            value,
+                            _path,
+                            closure_ctx,
+                        );
                     }
                     // Also check for direct expression bindings (filter parameters)
                     let expr_binding = {
@@ -5727,7 +6930,10 @@ impl Interpreter {
                 // and user-defined functions that don't produce valid paths
                 if !matches!(name.as_str(), "getpath" | "first" | "last") {
                     let mut interp = Interpreter { ctx: ctx.clone() };
-                    if let Some(Ok(result)) = interp.eval_expr(target, current.clone(), ctx.clone()).next() {
+                    if let Some(Ok(result)) = interp
+                        .eval_expr(target, current.clone(), ctx.clone())
+                        .next()
+                    {
                         use crate::jv::print_jv;
                         let formatted = print_jv(&result);
                         return Err(format!("Invalid path expression with result {}", formatted));
@@ -5737,7 +6943,8 @@ impl Interpreter {
             }
             ExprKind::Comma(left, right) => {
                 // (.a, .b) = value assigns value to both paths
-                let result = Self::apply_assignment(current, left, value.clone(), _path, ctx.clone())?;
+                let result =
+                    Self::apply_assignment(current, left, value.clone(), _path, ctx.clone())?;
                 Self::apply_assignment(result, right, value, _path, ctx)
             }
             _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
@@ -5745,13 +6952,21 @@ impl Interpreter {
     }
 
     /// Bind values to a pattern, returning error if pattern doesn't match
-    fn bind_pattern(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<(), String> {
+    fn bind_pattern(
+        &mut self,
+        pattern: &Pattern,
+        value: &Jv,
+        ctx: &Rc<RefCell<Context>>,
+    ) -> Result<(), String> {
         match &pattern.kind {
             PatternKind::Binding(name) => {
                 ctx.borrow_mut().bind_value(name, value.clone());
                 Ok(())
             }
-            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+            PatternKind::BoundPattern {
+                name,
+                pattern: sub_pattern,
+            } => {
                 // Bind the name to the value
                 ctx.borrow_mut().bind_value(name, value.clone());
                 // Also apply the sub-pattern
@@ -5761,7 +6976,12 @@ impl Interpreter {
                 // Value must be an array
                 let arr = match value {
                     Jv::Array(a) => a,
-                    _ => return Err(format!("Cannot bind {} to array pattern", value.type_name())),
+                    _ => {
+                        return Err(format!(
+                            "Cannot bind {} to array pattern",
+                            value.type_name()
+                        ))
+                    }
                 };
 
                 // Bind each element to corresponding pattern
@@ -5775,7 +6995,12 @@ impl Interpreter {
                 // Value must be an object
                 let obj = match value {
                     Jv::Object(o) => o,
-                    _ => return Err(format!("Cannot bind {} to object pattern", value.type_name())),
+                    _ => {
+                        return Err(format!(
+                            "Cannot bind {} to object pattern",
+                            value.type_name()
+                        ))
+                    }
                 };
 
                 // Bind each key's value to corresponding pattern
@@ -5789,7 +7014,10 @@ impl Interpreter {
                             match results.next() {
                                 Some(Ok(Jv::String(s))) => s.as_str().to_string(),
                                 Some(Ok(other)) => {
-                                    return Err(format!("Cannot use {} as object key", other.type_name()));
+                                    return Err(format!(
+                                        "Cannot use {} as object key",
+                                        other.type_name()
+                                    ));
                                 }
                                 Some(Err(e)) => return Err(e),
                                 None => return Err("Expression key produced no value".to_string()),
@@ -5831,27 +7059,46 @@ impl Interpreter {
 
     /// Try to bind a pattern, collecting bindings without modifying context
     /// Returns collected bindings on success, error on failure
-    fn try_bind_pattern(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<Vec<(String, Jv)>, String> {
+    fn try_bind_pattern(
+        &mut self,
+        pattern: &Pattern,
+        value: &Jv,
+        ctx: &Rc<RefCell<Context>>,
+    ) -> Result<Vec<(String, Jv)>, String> {
         let mut bindings = Vec::new();
         self.collect_bindings(pattern, value, ctx, &mut bindings)?;
         Ok(bindings)
     }
 
     /// Recursively collect bindings from a pattern without modifying context
-    fn collect_bindings(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>, bindings: &mut Vec<(String, Jv)>) -> Result<(), String> {
+    fn collect_bindings(
+        &mut self,
+        pattern: &Pattern,
+        value: &Jv,
+        ctx: &Rc<RefCell<Context>>,
+        bindings: &mut Vec<(String, Jv)>,
+    ) -> Result<(), String> {
         match &pattern.kind {
             PatternKind::Binding(name) => {
                 bindings.push((name.clone(), value.clone()));
                 Ok(())
             }
-            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+            PatternKind::BoundPattern {
+                name,
+                pattern: sub_pattern,
+            } => {
                 bindings.push((name.clone(), value.clone()));
                 self.collect_bindings(sub_pattern, value, ctx, bindings)
             }
             PatternKind::Array(patterns) => {
                 let arr = match value {
                     Jv::Array(a) => a,
-                    _ => return Err(format!("Cannot bind {} to array pattern", value.type_name())),
+                    _ => {
+                        return Err(format!(
+                            "Cannot bind {} to array pattern",
+                            value.type_name()
+                        ))
+                    }
                 };
                 for (i, pat) in patterns.iter().enumerate() {
                     let elem = arr.get(i as i64).unwrap_or(Jv::Null);
@@ -5862,7 +7109,12 @@ impl Interpreter {
             PatternKind::Object(entries) => {
                 let obj = match value {
                     Jv::Object(o) => o,
-                    _ => return Err(format!("Cannot bind {} to object pattern", value.type_name())),
+                    _ => {
+                        return Err(format!(
+                            "Cannot bind {} to object pattern",
+                            value.type_name()
+                        ))
+                    }
                 };
                 for (key, pat) in entries {
                     let key_str = match key {
@@ -5873,7 +7125,10 @@ impl Interpreter {
                             match results.next() {
                                 Some(Ok(Jv::String(s))) => s.as_str().to_string(),
                                 Some(Ok(other)) => {
-                                    return Err(format!("Cannot use {} as object key", other.type_name()));
+                                    return Err(format!(
+                                        "Cannot use {} as object key",
+                                        other.type_name()
+                                    ));
                                 }
                                 Some(Err(e)) => return Err(e),
                                 None => return Err("Expression key produced no value".to_string()),
@@ -5905,7 +7160,10 @@ impl Interpreter {
             PatternKind::Binding(name) => {
                 vars.insert(name.clone());
             }
-            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+            PatternKind::BoundPattern {
+                name,
+                pattern: sub_pattern,
+            } => {
                 vars.insert(name.clone());
                 Self::collect_pattern_vars(sub_pattern, vars);
             }
@@ -5949,7 +7207,11 @@ fn eval_binary_op(op: BinaryOp, left: &Jv, right: &Jv) -> Result<Jv, String> {
         BinaryOp::And => Ok(Jv::Bool(left.is_truthy() && right.is_truthy())),
         BinaryOp::Or => Ok(Jv::Bool(left.is_truthy() || right.is_truthy())),
         // Alternative: return left if truthy, otherwise right
-        BinaryOp::Alternative => Ok(if left.is_truthy() { left.clone() } else { right.clone() }),
+        BinaryOp::Alternative => Ok(if left.is_truthy() {
+            left.clone()
+        } else {
+            right.clone()
+        }),
     }
 }
 
@@ -5960,14 +7222,18 @@ fn add_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
         (Jv::String(s1), Jv::String(s2)) => Ok(Jv::String(s1.concat(s2))),
         (Jv::Array(a1), Jv::Array(a2)) => Ok(Jv::Array(a1.concat(a2))),
         (Jv::Object(o1), Jv::Object(o2)) => Ok(Jv::Object(o1.merge(o2))),
-        _ => Err(format!("{} and {} cannot be added", format_value_for_error(a), format_value_for_error(b))),
+        _ => Err(format!(
+            "{} and {} cannot be added",
+            format_value_for_error(a),
+            format_value_for_error(b)
+        )),
     }
 }
 
 /// Format a value for error messages, truncating long values like jq.
 /// jq uses a 30-byte buffer for truncation.
 fn format_value_for_error(v: &Jv) -> String {
-    use crate::jv::{JvPrintOptions, print_jv_with_options};
+    use crate::jv::{print_jv_with_options, JvPrintOptions};
 
     // Buffer size matching jq's errbuf[30]
     const BUFSIZE: usize = 30;
@@ -6027,7 +7293,11 @@ fn sub_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
             let result: Vec<_> = arr.iter().filter(|x| !sub_items.contains(x)).collect();
             Ok(Jv::from_vec(result))
         }
-        _ => Err(format!("{} and {} cannot be subtracted", format_value_for_error(a), format_value_for_error(b))),
+        _ => Err(format!(
+            "{} and {} cannot be subtracted",
+            format_value_for_error(a),
+            format_value_for_error(b)
+        )),
     }
 }
 
@@ -6061,7 +7331,11 @@ fn mul_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
             // Recursive merge
             Ok(Jv::Object(recursive_merge(o1, o2)))
         }
-        _ => Err(format!("{} and {} cannot be multiplied", a.type_name(), b.type_name())),
+        _ => Err(format!(
+            "{} and {} cannot be multiplied",
+            a.type_name(),
+            b.type_name()
+        )),
     }
 }
 
@@ -6069,17 +7343,28 @@ fn div_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => {
             if n2.as_f64() == 0.0 {
-                Err(format!("{} and {} cannot be divided because the divisor is zero",
-                    format_value_for_error(a), format_value_for_error(b)))
+                Err(format!(
+                    "{} and {} cannot be divided because the divisor is zero",
+                    format_value_for_error(a),
+                    format_value_for_error(b)
+                ))
             } else {
                 Ok(Jv::Number(n1.div(n2)))
             }
         }
         (Jv::String(s), Jv::String(sep)) => {
-            let parts: Vec<Jv> = s.split(sep.as_str()).into_iter().map(|p| Jv::String(p)).collect();
+            let parts: Vec<Jv> = s
+                .split(sep.as_str())
+                .into_iter()
+                .map(|p| Jv::String(p))
+                .collect();
             Ok(Jv::from_vec(parts))
         }
-        _ => Err(format!("{} and {} cannot be divided", a.type_name(), b.type_name())),
+        _ => Err(format!(
+            "{} and {} cannot be divided",
+            a.type_name(),
+            b.type_name()
+        )),
     }
 }
 
@@ -6087,13 +7372,20 @@ fn mod_values(a: &Jv, b: &Jv) -> Result<Jv, String> {
     match (a, b) {
         (Jv::Number(n1), Jv::Number(n2)) => {
             if n2.as_f64() == 0.0 {
-                Err(format!("{} and {} cannot be divided (remainder) because the divisor is zero",
-                    format_value_for_error(a), format_value_for_error(b)))
+                Err(format!(
+                    "{} and {} cannot be divided (remainder) because the divisor is zero",
+                    format_value_for_error(a),
+                    format_value_for_error(b)
+                ))
             } else {
                 Ok(Jv::Number(n1.modulo(n2)))
             }
         }
-        _ => Err(format!("{} and {} cannot use modulo", a.type_name(), b.type_name())),
+        _ => Err(format!(
+            "{} and {} cannot use modulo",
+            a.type_name(),
+            b.type_name()
+        )),
     }
 }
 
@@ -6124,8 +7416,8 @@ pub fn interpret(expr: &Expr, input: Jv) -> EvalResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse;
     use crate::jv::parse_json;
+    use crate::parser::parse;
 
     fn eval(filter: &str, input: &str) -> Vec<Result<Jv, String>> {
         let expr = parse(filter).expect("parse failed");
@@ -6134,7 +7426,10 @@ mod tests {
     }
 
     fn eval_ok(filter: &str, input: &str) -> Vec<Jv> {
-        eval(filter, input).into_iter().map(|r| r.expect("eval error")).collect()
+        eval(filter, input)
+            .into_iter()
+            .map(|r| r.expect("eval error"))
+            .collect()
     }
 
     #[test]
@@ -6165,7 +7460,10 @@ mod tests {
     #[test]
     fn test_iterator() {
         let results = eval_ok(".[]", "[1, 2, 3]");
-        assert_eq!(results, vec![Jv::from_i64(1), Jv::from_i64(2), Jv::from_i64(3)]);
+        assert_eq!(
+            results,
+            vec![Jv::from_i64(1), Jv::from_i64(2), Jv::from_i64(3)]
+        );
     }
 
     #[test]
@@ -6200,8 +7498,14 @@ mod tests {
 
     #[test]
     fn test_if_then_else() {
-        assert_eq!(eval_ok("if . > 0 then 1 else 0 end", "5"), vec![Jv::from_i64(1)]);
-        assert_eq!(eval_ok("if . > 0 then 1 else 0 end", "-5"), vec![Jv::from_i64(0)]);
+        assert_eq!(
+            eval_ok("if . > 0 then 1 else 0 end", "5"),
+            vec![Jv::from_i64(1)]
+        );
+        assert_eq!(
+            eval_ok("if . > 0 then 1 else 0 end", "-5"),
+            vec![Jv::from_i64(0)]
+        );
     }
 
     #[test]
@@ -6233,8 +7537,14 @@ mod tests {
 
     #[test]
     fn test_alternative() {
-        assert_eq!(eval_ok(".a // \"default\"", r#"{"b": 1}"#), vec![Jv::string("default")]);
-        assert_eq!(eval_ok(".a // \"default\"", r#"{"a": 1}"#), vec![Jv::from_i64(1)]);
+        assert_eq!(
+            eval_ok(".a // \"default\"", r#"{"b": 1}"#),
+            vec![Jv::string("default")]
+        );
+        assert_eq!(
+            eval_ok(".a // \"default\"", r#"{"a": 1}"#),
+            vec![Jv::from_i64(1)]
+        );
     }
 
     #[test]

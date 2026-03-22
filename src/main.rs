@@ -6,14 +6,16 @@ use std::io::{self, BufRead, Write};
 use std::process;
 
 use clap::Parser;
-use jq_rust::jv::{print_jv_with_options, JvPrintOptions, parse_json_stream};
-use jq_rust::{parse, interpret, Jv};
+use jq_rust::jv::{parse_json_stream, print_jv_with_options, JvPrintOptions};
+use jq_rust::{interpret, parse, Jv};
 
 /// jqr - commandline JSON processor (Rust implementation of jq)
 #[derive(Parser, Debug)]
 #[command(name = "jqr")]
 #[command(version = "0.1.0")]
-#[command(about = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor")]
+#[command(
+    about = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
+)]
 struct Args {
     /// The jq filter to apply
     #[arg(default_value = ".")]
@@ -169,8 +171,8 @@ fn process_input(
         let reader: Box<dyn BufRead> = if file == "-" {
             Box::new(stdin.lock())
         } else {
-            let f = std::fs::File::open(file)
-                .map_err(|e| format!("cannot open '{}': {}", file, e))?;
+            let f =
+                std::fs::File::open(file).map_err(|e| format!("cannot open '{}': {}", file, e))?;
             Box::new(io::BufReader::new(f))
         };
 
@@ -178,7 +180,8 @@ fn process_input(
             // Read as raw string
             let mut content = String::new();
             let mut reader = reader;
-            reader.read_to_string(&mut content)
+            reader
+                .read_to_string(&mut content)
                 .map_err(|e| format!("read error: {}", e))?;
 
             if args.slurp {
@@ -194,7 +197,8 @@ fn process_input(
             // Slurp mode: read all JSON values into an array
             let mut content = String::new();
             let mut reader = reader;
-            reader.read_to_string(&mut content)
+            reader
+                .read_to_string(&mut content)
                 .map_err(|e| format!("read error: {}", e))?;
 
             let mut values = Vec::new();
@@ -209,7 +213,8 @@ fn process_input(
             // Normal mode: process each JSON value
             let mut content = String::new();
             let mut reader = reader;
-            reader.read_to_string(&mut content)
+            reader
+                .read_to_string(&mut content)
                 .map_err(|e| format!("read error: {}", e))?;
 
             for result in parse_json_stream(&content) {

@@ -1,6 +1,6 @@
 //! Lexer for jq filter language
 
-use super::token::{Token, TokenKind, Span};
+use super::token::{Span, Token, TokenKind};
 
 /// Lexer state for handling strings with interpolation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +131,10 @@ impl<'a> Lexer<'a> {
                             // This closes the interpolation
                             self.paren_stack.pop();
                             self.pop_state();
-                            return Token::new(TokenKind::StringInterpEnd, Span::new(start, self.pos));
+                            return Token::new(
+                                TokenKind::StringInterpEnd,
+                                Span::new(start, self.pos),
+                            );
                         } else {
                             *count -= 1;
                         }
@@ -155,7 +158,8 @@ impl<'a> Lexer<'a> {
                     while self.peek().map_or(false, is_ident_continue) {
                         self.advance();
                     }
-                    let name = String::from_utf8_lossy(&self.input[field_start..self.pos]).to_string();
+                    let name =
+                        String::from_utf8_lossy(&self.input[field_start..self.pos]).to_string();
                     TokenKind::Field(name)
                 } else {
                     TokenKind::Dot
@@ -283,7 +287,8 @@ impl<'a> Lexer<'a> {
                     while self.peek().map_or(false, is_ident_continue) {
                         self.advance();
                     }
-                    let name = String::from_utf8_lossy(&self.input[name_start..self.pos]).to_string();
+                    let name =
+                        String::from_utf8_lossy(&self.input[name_start..self.pos]).to_string();
                     TokenKind::Binding(name)
                 } else {
                     TokenKind::Dollar
@@ -294,10 +299,14 @@ impl<'a> Lexer<'a> {
             b'@' => {
                 if self.peek().map_or(false, is_ident_start) {
                     let name_start = self.pos;
-                    while self.peek().map_or(false, |c| is_ident_continue(c) || c == b'-') {
+                    while self
+                        .peek()
+                        .map_or(false, |c| is_ident_continue(c) || c == b'-')
+                    {
                         self.advance();
                     }
-                    let name = String::from_utf8_lossy(&self.input[name_start..self.pos]).to_string();
+                    let name =
+                        String::from_utf8_lossy(&self.input[name_start..self.pos]).to_string();
                     TokenKind::Format(name)
                 } else {
                     TokenKind::Invalid('@')
@@ -342,12 +351,10 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
 
         match self.peek() {
-            None => {
-                Token::new(
-                    TokenKind::Error("unterminated string".to_string()),
-                    Span::new(start, self.pos),
-                )
-            }
+            None => Token::new(
+                TokenKind::Error("unterminated string".to_string()),
+                Span::new(start, self.pos),
+            ),
             Some(b'"') => {
                 self.advance();
                 self.pop_state();
@@ -572,7 +579,7 @@ impl<'a> Lexer<'a> {
 fn extract_exponent(s: &str) -> Option<i64> {
     let s = s.to_uppercase();
     if let Some(idx) = s.find('E') {
-        s[idx+1..].parse::<i64>().ok()
+        s[idx + 1..].parse::<i64>().ok()
     } else {
         None
     }
@@ -588,7 +595,7 @@ fn normalize_literal_number(s: &str) -> String {
 
     // Split mantissa and exponent
     let (mantissa_str, exp_str) = if let Some(idx) = s.find('E') {
-        (&s[..idx], &s[idx+1..])
+        (&s[..idx], &s[idx + 1..])
     } else {
         return s.to_string(); // No exponent, return as-is
     };

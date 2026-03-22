@@ -2,7 +2,7 @@
 //!
 //! Parses JSON text into JV values.
 
-use super::{Jv, JvArray, JvObject, JvNumber, JvString};
+use super::{Jv, JvArray, JvNumber, JvObject, JvString};
 use crate::error::JqError;
 
 /// Maximum nesting depth for parsing (matches jq's MAX_PARSING_DEPTH)
@@ -101,7 +101,11 @@ impl<'a> JsonParser<'a> {
 
     fn parse_nan(&mut self) -> Result<Jv, JqError> {
         // Accept both "nan" and "NaN"
-        let nan_str = if self.starts_with("NaN") { "NaN" } else { "nan" };
+        let nan_str = if self.starts_with("NaN") {
+            "NaN"
+        } else {
+            "nan"
+        };
         let start_pos = self.pos;
         self.expect_literal(nan_str)?;
 
@@ -117,7 +121,8 @@ impl<'a> JsonParser<'a> {
                     }
                 }
                 let end_pos = self.pos;
-                let invalid_literal = std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("NaN...");
+                let invalid_literal =
+                    std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("NaN...");
                 // jq reports column as the length of the parsed input (end position)
                 return Err(JqError::Parse(format!(
                     "Invalid numeric literal at EOF at line 1, column {} (while parsing '{}')",
@@ -131,7 +136,11 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_neg_nan(&mut self) -> Result<Jv, JqError> {
-        let nan_str = if self.starts_with("-NaN") { "-NaN" } else { "-nan" };
+        let nan_str = if self.starts_with("-NaN") {
+            "-NaN"
+        } else {
+            "-nan"
+        };
         let start_pos = self.pos;
         self.expect_literal(nan_str)?;
 
@@ -146,7 +155,8 @@ impl<'a> JsonParser<'a> {
                     }
                 }
                 let end_pos = self.pos;
-                let invalid_literal = std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("-NaN...");
+                let invalid_literal =
+                    std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("-NaN...");
                 return Err(JqError::Parse(format!(
                     "Invalid numeric literal at EOF at line 1, column {} (while parsing '{}')",
                     end_pos, invalid_literal
@@ -231,7 +241,9 @@ impl<'a> JsonParser<'a> {
                 "invalid escape sequence '\\{}' at position {}",
                 c as char, self.pos
             ))),
-            None => Err(JqError::Parse("unexpected end of escape sequence".to_string())),
+            None => Err(JqError::Parse(
+                "unexpected end of escape sequence".to_string(),
+            )),
         }
     }
 
@@ -239,9 +251,9 @@ impl<'a> JsonParser<'a> {
         let mut code_point = 0u32;
 
         for _ in 0..4 {
-            let digit = self.next().ok_or_else(|| {
-                JqError::Parse("incomplete unicode escape".to_string())
-            })?;
+            let digit = self
+                .next()
+                .ok_or_else(|| JqError::Parse("incomplete unicode escape".to_string()))?;
 
             let value = match digit {
                 b'0'..=b'9' => digit - b'0',
@@ -266,9 +278,9 @@ impl<'a> JsonParser<'a> {
 
             let mut low = 0u32;
             for _ in 0..4 {
-                let digit = self.next().ok_or_else(|| {
-                    JqError::Parse("incomplete unicode escape".to_string())
-                })?;
+                let digit = self
+                    .next()
+                    .ok_or_else(|| JqError::Parse("incomplete unicode escape".to_string()))?;
 
                 let value = match digit {
                     b'0'..=b'9' => digit - b'0',
@@ -298,9 +310,9 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_utf8_char(&mut self) -> Result<char, JqError> {
-        let first = self.next().ok_or_else(|| {
-            JqError::Parse("unexpected end of UTF-8 sequence".to_string())
-        })?;
+        let first = self
+            .next()
+            .ok_or_else(|| JqError::Parse("unexpected end of UTF-8 sequence".to_string()))?;
 
         let width = if first & 0x80 == 0 {
             1
@@ -316,11 +328,13 @@ impl<'a> JsonParser<'a> {
 
         let mut bytes = vec![first];
         for _ in 1..width {
-            let b = self.next().ok_or_else(|| {
-                JqError::Parse("incomplete UTF-8 sequence".to_string())
-            })?;
+            let b = self
+                .next()
+                .ok_or_else(|| JqError::Parse("incomplete UTF-8 sequence".to_string()))?;
             if b & 0xC0 != 0x80 {
-                return Err(JqError::Parse("invalid UTF-8 continuation byte".to_string()));
+                return Err(JqError::Parse(
+                    "invalid UTF-8 continuation byte".to_string(),
+                ));
             }
             bytes.push(b);
         }
@@ -401,9 +415,9 @@ impl<'a> JsonParser<'a> {
         }
 
         // Parse as float
-        let f: f64 = num_str.parse().map_err(|_| {
-            JqError::Parse(format!("invalid number '{}'", num_str))
-        })?;
+        let f: f64 = num_str
+            .parse()
+            .map_err(|_| JqError::Parse(format!("invalid number '{}'", num_str)))?;
 
         Ok(Jv::Number(JvNumber::from_f64(f)))
     }
@@ -411,7 +425,9 @@ impl<'a> JsonParser<'a> {
     fn parse_array(&mut self) -> Result<Jv, JqError> {
         // Check depth limit
         if self.depth >= MAX_PARSING_DEPTH {
-            return Err(JqError::Parse("Exceeds depth limit for parsing".to_string()));
+            return Err(JqError::Parse(
+                "Exceeds depth limit for parsing".to_string(),
+            ));
         }
         self.depth += 1;
 
@@ -460,7 +476,9 @@ impl<'a> JsonParser<'a> {
     fn parse_object(&mut self) -> Result<Jv, JqError> {
         // Check depth limit
         if self.depth >= MAX_PARSING_DEPTH {
-            return Err(JqError::Parse("Exceeds depth limit for parsing".to_string()));
+            return Err(JqError::Parse(
+                "Exceeds depth limit for parsing".to_string(),
+            ));
         }
         self.depth += 1;
 
@@ -484,7 +502,7 @@ impl<'a> JsonParser<'a> {
                     // Single quote used instead of double quote
                     // jq reports the position after consuming the single-quoted string
                     self.next(); // consume opening '
-                    // Find closing '
+                                 // Find closing '
                     while let Some(&c) = self.peek() {
                         self.next();
                         if c == b'\'' {
@@ -574,7 +592,9 @@ impl<'a> JsonParser<'a> {
             Some(c) if c == expected => Ok(()),
             Some(c) => Err(JqError::Parse(format!(
                 "expected '{}' but found '{}' at position {}",
-                expected as char, c as char, self.pos - 1
+                expected as char,
+                c as char,
+                self.pos - 1
             ))),
             None => Err(JqError::Parse(format!(
                 "expected '{}' but found end of input",
@@ -653,8 +673,14 @@ mod tests {
     #[test]
     fn test_parse_string() {
         assert_eq!(parse_json(r#""hello""#).unwrap(), Jv::string("hello"));
-        assert_eq!(parse_json(r#""hello\nworld""#).unwrap(), Jv::string("hello\nworld"));
-        assert_eq!(parse_json(r#""hello\\world""#).unwrap(), Jv::string("hello\\world"));
+        assert_eq!(
+            parse_json(r#""hello\nworld""#).unwrap(),
+            Jv::string("hello\nworld")
+        );
+        assert_eq!(
+            parse_json(r#""hello\\world""#).unwrap(),
+            Jv::string("hello\\world")
+        );
         assert_eq!(parse_json(r#""\u0041""#).unwrap(), Jv::string("A"));
     }
 
