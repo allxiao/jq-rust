@@ -506,7 +506,8 @@ impl Interpreter {
                             let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
 
                             // Try to bind the pattern
-                            if let Err(e) = Self::bind_pattern(&pattern, &bind_val, &child_ctx) {
+                            let mut inner = Interpreter { ctx: child_ctx.clone() };
+                            if let Err(e) = inner.bind_pattern(&pattern, &bind_val, &child_ctx) {
                                 return Box::new(std::iter::once(Err(e))) as EvalResult;
                             }
 
@@ -1563,7 +1564,8 @@ impl Interpreter {
                 Ok(item) => {
                     // Create context with binding
                     let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                    if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
+                    let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                    if let Err(e) = bind_inner.bind_pattern(pattern, &item, &child_ctx) {
                         return Box::new(std::iter::once(Err(e)));
                     }
 
@@ -1611,7 +1613,8 @@ impl Interpreter {
                     Ok(item) => {
                         // Create context with binding
                         let child_ctx = Rc::new(RefCell::new(Context::child(ctx_clone.clone())));
-                        if let Err(e) = Self::bind_pattern(pattern, &item, &child_ctx) {
+                        let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                        if let Err(e) = bind_inner.bind_pattern(pattern, &item, &child_ctx) {
                             return Box::new(std::iter::once(Err(e)));
                         }
 
@@ -3831,7 +3834,8 @@ impl Interpreter {
 
                 // Create child context with binding
                 let child_ctx = Rc::new(RefCell::new(Context::child(ctx.clone())));
-                Self::bind_pattern(pattern, &bind_val, &child_ctx)?;
+                let mut bind_inner = Interpreter { ctx: child_ctx.clone() };
+                bind_inner.bind_pattern(pattern, &bind_val, &child_ctx)?;
 
                 // Apply assignment to body in child context
                 Self::apply_assignment(current, body, value, _path, child_ctx)
@@ -3907,7 +3911,7 @@ impl Interpreter {
     }
 
     /// Bind values to a pattern, returning error if pattern doesn't match
-    fn bind_pattern(pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<(), String> {
+    fn bind_pattern(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<(), String> {
         match &pattern.kind {
             PatternKind::Binding(name) => {
                 ctx.borrow_mut().bind_value(name, value.clone());
@@ -3917,7 +3921,7 @@ impl Interpreter {
                 // Bind the name to the value
                 ctx.borrow_mut().bind_value(name, value.clone());
                 // Also apply the sub-pattern
-                Self::bind_pattern(sub_pattern, value, ctx)
+                self.bind_pattern(sub_pattern, value, ctx)
             }
             PatternKind::Array(patterns) => {
                 // Value must be an array
@@ -3929,7 +3933,7 @@ impl Interpreter {
                 // Bind each element to corresponding pattern
                 for (i, pat) in patterns.iter().enumerate() {
                     let elem = arr.get(i as i64).unwrap_or(Jv::Null);
-                    Self::bind_pattern(pat, &elem, ctx)?;
+                    self.bind_pattern(pat, &elem, ctx)?;
                 }
                 Ok(())
             }
@@ -3945,16 +3949,145 @@ impl Interpreter {
                     let key_str = match key {
                         ObjectKey::Ident(s) | ObjectKey::String(s) => s.clone(),
                         ObjectKey::Shorthand(s) => s.clone(),
-                        ObjectKey::Expr(_) => {
-                            // Expression keys in patterns are not commonly used
-                            return Err("expression keys in patterns not yet supported".to_string());
+                        ObjectKey::Expr(key_expr) => {
+                            // Evaluate expression key with value as input
+                            let mut results = self.eval_expr(key_expr, value.clone(), ctx.clone());
+                            match results.next() {
+                                Some(Ok(Jv::String(s))) => s.as_str().to_string(),
+                                Some(Ok(other)) => {
+                                    return Err(format!("Cannot use {} as object key", other.type_name()));
+                                }
+                                Some(Err(e)) => return Err(e),
+                                None => return Err("Expression key produced no value".to_string()),
+                            }
                         }
                     };
 
                     let elem = obj.get(&key_str).unwrap_or(Jv::Null);
-                    Self::bind_pattern(pat, &elem, ctx)?;
+                    self.bind_pattern(pat, &elem, ctx)?;
                 }
                 Ok(())
+            }
+            PatternKind::Alternative(first, second) => {
+                // Collect all variable names from both patterns
+                let mut all_vars = std::collections::HashSet::new();
+                Self::collect_pattern_vars(first, &mut all_vars);
+                Self::collect_pattern_vars(second, &mut all_vars);
+
+                // Pre-bind all variables to null
+                for var in &all_vars {
+                    ctx.borrow_mut().bind_value(var, Jv::Null);
+                }
+
+                // Try first pattern - collect bindings without committing
+                let bindings = self.try_bind_pattern(first, value, ctx);
+                if let Ok(binds) = bindings {
+                    // Success - commit bindings (overwrite the nulls)
+                    for (name, val) in binds {
+                        ctx.borrow_mut().bind_value(&name, val);
+                    }
+                    Ok(())
+                } else {
+                    // First failed, try second - this will overwrite the nulls
+                    self.bind_pattern(second, value, ctx)
+                }
+            }
+        }
+    }
+
+    /// Try to bind a pattern, collecting bindings without modifying context
+    /// Returns collected bindings on success, error on failure
+    fn try_bind_pattern(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>) -> Result<Vec<(String, Jv)>, String> {
+        let mut bindings = Vec::new();
+        self.collect_bindings(pattern, value, ctx, &mut bindings)?;
+        Ok(bindings)
+    }
+
+    /// Recursively collect bindings from a pattern without modifying context
+    fn collect_bindings(&mut self, pattern: &Pattern, value: &Jv, ctx: &Rc<RefCell<Context>>, bindings: &mut Vec<(String, Jv)>) -> Result<(), String> {
+        match &pattern.kind {
+            PatternKind::Binding(name) => {
+                bindings.push((name.clone(), value.clone()));
+                Ok(())
+            }
+            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+                bindings.push((name.clone(), value.clone()));
+                self.collect_bindings(sub_pattern, value, ctx, bindings)
+            }
+            PatternKind::Array(patterns) => {
+                let arr = match value {
+                    Jv::Array(a) => a,
+                    _ => return Err(format!("Cannot bind {} to array pattern", value.type_name())),
+                };
+                for (i, pat) in patterns.iter().enumerate() {
+                    let elem = arr.get(i as i64).unwrap_or(Jv::Null);
+                    self.collect_bindings(pat, &elem, ctx, bindings)?;
+                }
+                Ok(())
+            }
+            PatternKind::Object(entries) => {
+                let obj = match value {
+                    Jv::Object(o) => o,
+                    _ => return Err(format!("Cannot bind {} to object pattern", value.type_name())),
+                };
+                for (key, pat) in entries {
+                    let key_str = match key {
+                        ObjectKey::Ident(s) | ObjectKey::String(s) => s.clone(),
+                        ObjectKey::Shorthand(s) => s.clone(),
+                        ObjectKey::Expr(key_expr) => {
+                            let mut results = self.eval_expr(key_expr, value.clone(), ctx.clone());
+                            match results.next() {
+                                Some(Ok(Jv::String(s))) => s.as_str().to_string(),
+                                Some(Ok(other)) => {
+                                    return Err(format!("Cannot use {} as object key", other.type_name()));
+                                }
+                                Some(Err(e)) => return Err(e),
+                                None => return Err("Expression key produced no value".to_string()),
+                            }
+                        }
+                    };
+                    let elem = obj.get(&key_str).unwrap_or(Jv::Null);
+                    self.collect_bindings(pat, &elem, ctx, bindings)?;
+                }
+                Ok(())
+            }
+            PatternKind::Alternative(first, second) => {
+                // Try first pattern
+                let first_result = self.try_bind_pattern(first, value, ctx);
+                if let Ok(binds) = first_result {
+                    bindings.extend(binds);
+                    Ok(())
+                } else {
+                    // Try second
+                    self.collect_bindings(second, value, ctx, bindings)
+                }
+            }
+        }
+    }
+
+    /// Collect all variable names from a pattern (for pre-binding to null)
+    fn collect_pattern_vars(pattern: &Pattern, vars: &mut std::collections::HashSet<String>) {
+        match &pattern.kind {
+            PatternKind::Binding(name) => {
+                vars.insert(name.clone());
+            }
+            PatternKind::BoundPattern { name, pattern: sub_pattern } => {
+                vars.insert(name.clone());
+                Self::collect_pattern_vars(sub_pattern, vars);
+            }
+            PatternKind::Array(patterns) => {
+                for pat in patterns {
+                    Self::collect_pattern_vars(pat, vars);
+                }
+            }
+            PatternKind::Object(entries) => {
+                for (_, pat) in entries {
+                    Self::collect_pattern_vars(pat, vars);
+                }
+            }
+            PatternKind::Alternative(first, second) => {
+                Self::collect_pattern_vars(first, vars);
+                Self::collect_pattern_vars(second, vars);
             }
         }
     }

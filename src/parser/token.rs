@@ -243,6 +243,32 @@ impl TokenKind {
             _ => None,
         }
     }
+
+    /// Get identifier string for keywords (for use as object keys in patterns)
+    pub fn as_ident_string(&self) -> Option<&'static str> {
+        match self {
+            TokenKind::If => Some("if"),
+            TokenKind::Then => Some("then"),
+            TokenKind::Else => Some("else"),
+            TokenKind::Elif => Some("elif"),
+            TokenKind::End => Some("end"),
+            TokenKind::As => Some("as"),
+            TokenKind::Def => Some("def"),
+            TokenKind::Reduce => Some("reduce"),
+            TokenKind::Foreach => Some("foreach"),
+            TokenKind::Try => Some("try"),
+            TokenKind::Catch => Some("catch"),
+            TokenKind::And => Some("and"),
+            TokenKind::Or => Some("or"),
+            TokenKind::Not => Some("not"),
+            TokenKind::Import => Some("import"),
+            TokenKind::Include => Some("include"),
+            TokenKind::Module => Some("module"),
+            TokenKind::Label => Some("label"),
+            TokenKind::Break => Some("break"),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for TokenKind {

@@ -66,9 +66,23 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_comma_expr()?;
 
         // Handle "as" binding: expr as $var | body
+        // Also handles alternative patterns: expr as pat1 ?// pat2 | body
         if self.check(&TokenKind::As) {
             self.advance();
-            let pattern = self.parse_pattern()?;
+            let mut pattern = self.parse_pattern()?;
+
+            // Handle alternative patterns with ?//
+            while self.check(&TokenKind::QuestionDoubleSlash) {
+                let alt_start = self.current.span;
+                self.advance();
+                let alt_pattern = self.parse_pattern()?;
+                let span = pattern.span.merge(alt_pattern.span);
+                pattern = Pattern {
+                    kind: PatternKind::Alternative(Box::new(pattern), Box::new(alt_pattern)),
+                    span,
+                };
+            }
+
             self.expect(&TokenKind::Pipe)?;
             let body = self.parse_query()?;
             let span = expr.span.merge(body.span);
@@ -198,6 +212,11 @@ impl<'a> Parser<'a> {
         // Key with explicit pattern
         let key = if let TokenKind::Ident(name) = &self.current.kind {
             let name = name.clone();
+            self.advance();
+            ObjectKey::Ident(name)
+        } else if let Some(keyword_name) = self.current.kind.as_ident_string() {
+            // Keywords can be used as object keys in patterns (e.g., {as: $kw})
+            let name = keyword_name.to_string();
             self.advance();
             ObjectKey::Ident(name)
         } else if self.check(&TokenKind::StringStart) {

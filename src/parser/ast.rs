@@ -336,6 +336,9 @@ pub enum PatternKind {
         /// Sub-pattern to also apply
         pattern: Box<Pattern>,
     },
+    /// Alternative patterns: pattern1 ?// pattern2
+    /// Try first pattern, if it fails try second
+    Alternative(Box<Pattern>, Box<Pattern>),
 }
 
 /// Part of a string with interpolation
