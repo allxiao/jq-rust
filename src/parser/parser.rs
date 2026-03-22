@@ -511,6 +511,41 @@ impl<'a> Parser<'a> {
                 self.advance();
                 if self.check(&TokenKind::LBracket) {
                     expr = self.parse_index_expr(expr)?;
+                } else if self.check(&TokenKind::StringStart) {
+                    // Handle ."string" field access
+                    let string_expr = self.parse_string()?;
+                    let end = string_expr.span;
+                    let span = expr.span.merge(end);
+
+                    // Check for optional
+                    let optional = self.check(&TokenKind::Question);
+                    if optional {
+                        self.advance();
+                    }
+
+                    if let ExprKind::Literal(Literal::String(name)) = string_expr.kind {
+                        expr = Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(expr),
+                                index: Box::new(Expr::new(
+                                    ExprKind::Literal(Literal::String(name)),
+                                    end,
+                                )),
+                                optional,
+                            },
+                            span,
+                        );
+                    } else {
+                        // String interpolation - create dynamic index
+                        expr = Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(expr),
+                                index: Box::new(string_expr),
+                                optional,
+                            },
+                            span,
+                        );
+                    }
                 } else {
                     // This shouldn't normally happen, but handle it
                     break;
@@ -619,10 +654,48 @@ impl<'a> Parser<'a> {
         let token = self.current.clone();
 
         match &token.kind {
-            // Identity
+            // Identity or ."string"
             TokenKind::Dot => {
                 self.advance();
-                Ok(Expr::new(ExprKind::Identity, token.span))
+                // Check if followed by a string for ."string" syntax
+                if self.check(&TokenKind::StringStart) {
+                    let string_expr = self.parse_string()?;
+                    // The string_expr should be a Literal::String
+                    if let ExprKind::Literal(Literal::String(name)) = string_expr.kind {
+                        let end = string_expr.span;
+                        let optional = self.check(&TokenKind::Question);
+                        if optional {
+                            self.advance();
+                        }
+                        Ok(Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, token.span)),
+                                index: Box::new(Expr::new(
+                                    ExprKind::Literal(Literal::String(name)),
+                                    end,
+                                )),
+                                optional,
+                            },
+                            token.span.merge(end),
+                        ))
+                    } else {
+                        // String interpolation in field name - create dynamic index
+                        let optional = self.check(&TokenKind::Question);
+                        if optional {
+                            self.advance();
+                        }
+                        Ok(Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, token.span)),
+                                index: Box::new(string_expr.clone()),
+                                optional,
+                            },
+                            token.span.merge(string_expr.span),
+                        ))
+                    }
+                } else {
+                    Ok(Expr::new(ExprKind::Identity, token.span))
+                }
             }
 
             // Recursive descent
