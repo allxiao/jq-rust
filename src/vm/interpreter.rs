@@ -705,6 +705,9 @@ impl Interpreter {
             ("min_by", 1) => return self.eval_min_by(&args[0], input, ctx),
             ("any", 0) => return self.eval_any_simple(input),
             ("all", 0) => return self.eval_all_simple(input),
+            ("del", 1) => return self.eval_del(&args[0], input, ctx),
+            ("getpath", 1) => return self.eval_getpath(&args[0], input, ctx),
+            ("isempty", 1) => return self.eval_isempty(&args[0], input, ctx),
             _ => {}
         }
 
@@ -1173,6 +1176,126 @@ impl Interpreter {
             }
             _ => Box::new(std::iter::once(Err("all requires array".to_string()))),
         }
+    }
+
+    fn eval_del(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // del(path) deletes the element at path
+        let result = Self::apply_deletion(input, path_expr, ctx);
+        match result {
+            Ok(v) => Box::new(std::iter::once(Ok(v))),
+            Err(e) => Box::new(std::iter::once(Err(e))),
+        }
+    }
+
+    fn apply_deletion(
+        current: Jv,
+        target: &Expr,
+        ctx: Rc<RefCell<Context>>,
+    ) -> Result<Jv, String> {
+        match &target.kind {
+            ExprKind::Identity => {
+                // del(.) - return null
+                Ok(Jv::Null)
+            }
+            ExprKind::Field(name) => {
+                // del(.foo)
+                match current {
+                    Jv::Object(mut obj) => {
+                        obj.delete(name);
+                        Ok(Jv::Object(obj))
+                    }
+                    _ => Ok(current), // No-op if not object
+                }
+            }
+            ExprKind::Index { expr: base, index, optional: _ } => {
+                let mut idx_interp = Interpreter { ctx: ctx.clone() };
+                let idx_val = match idx_interp.eval_expr(index, current.clone(), ctx.clone()).next() {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => return Err(e),
+                    None => return Ok(current),
+                };
+
+                match &base.kind {
+                    ExprKind::Identity => {
+                        match &idx_val {
+                            Jv::String(s) => {
+                                match current {
+                                    Jv::Object(mut obj) => {
+                                        obj.delete(s.as_str());
+                                        Ok(Jv::Object(obj))
+                                    }
+                                    _ => Ok(current),
+                                }
+                            }
+                            Jv::Number(n) => {
+                                if let Some(idx) = n.as_i64() {
+                                    match current {
+                                        Jv::Array(mut arr) => {
+                                            arr.delete(idx);
+                                            Ok(Jv::Array(arr))
+                                        }
+                                        _ => Ok(current),
+                                    }
+                                } else {
+                                    Ok(current)
+                                }
+                            }
+                            _ => Ok(current),
+                        }
+                    }
+                    _ => {
+                        // Nested deletion
+                        let mut base_interp = Interpreter { ctx: ctx.clone() };
+                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                            Some(Ok(v)) => v,
+                            Some(Err(e)) => return Err(e),
+                            None => return Ok(current),
+                        };
+
+                        let inner_target = Expr::new(
+                            ExprKind::Index {
+                                expr: Box::new(Expr::new(ExprKind::Identity, target.span)),
+                                index: index.clone(),
+                                optional: false,
+                            },
+                            target.span,
+                        );
+                        let modified_base = Self::apply_deletion(base_val, &inner_target, ctx.clone())?;
+                        Self::apply_assignment(current, base, modified_base, &mut Vec::new(), ctx)
+                    }
+                }
+            }
+            _ => Err(format!("Cannot delete from expression: {:?}", target.kind)),
+        }
+    }
+
+    fn eval_getpath(&mut self, path_expr: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // getpath(path_array) - evaluate the path expression to get array, then traverse
+        let path_results: Vec<_> = self.eval_expr(path_expr, input.clone(), ctx.clone()).collect();
+
+        Box::new(path_results.into_iter().flat_map(move |path_result| {
+            match path_result {
+                Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
+                Ok(Jv::Array(path)) => {
+                    let mut current = input.clone();
+                    for key in path.iter() {
+                        current = current.index(&key);
+                        if current.is_invalid() {
+                            return Box::new(std::iter::once(Ok(Jv::Null))) as EvalResult;
+                        }
+                    }
+                    Box::new(std::iter::once(Ok(current))) as EvalResult
+                }
+                Ok(v) => Box::new(std::iter::once(Err(format!("getpath requires array, got {}", v.type_name())))) as EvalResult,
+            }
+        }))
+    }
+
+    fn eval_isempty(&mut self, filter: &Expr, input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {
+        // isempty(expr) returns true if expr produces no output
+        let mut inner = Interpreter { ctx: ctx.clone() };
+        let has_output = inner.eval_expr(filter, input, ctx).next().is_some();
+        Box::new(std::iter::once(Ok(Jv::Bool(!has_output))))
     }
 
     fn eval_string_interp(&mut self, parts: &[StringPart], input: Jv, ctx: Rc<RefCell<Context>>) -> EvalResult {

@@ -78,6 +78,21 @@
 - [x] Added JvArray.delete() method
 - [x] All 95 unit tests passing (including 5 new format tests)
 
+### Session 4 (2026-03-20)
+- [x] Added more built-in functions:
+  - abs (alias for fabs)
+  - @urid (URI decode)
+  - bsearch (binary search)
+  - explode/implode (string <-> codepoints)
+  - ascii (first char codepoint)
+  - utf8bytelength (byte length)
+- [x] Implemented assignment expressions:
+  - Simple: .foo = value, .[n] = value
+  - Update: expr |= filter
+  - Operators: +=, -=, *=, /=, %=
+  - Negative array indexing in assignments
+- [x] All 95 unit tests passing
+
 ## Phase Progress
 
 ### Phase 1: Foundation (100%)
@@ -137,8 +152,10 @@
 - `df79d19` - Initial empty Rust project
 - `cd72c3c` - Phase 1: Foundation - JV types, JSON parsing, CLI
 - `b82007d` - Phase 2: Lexer and Parser for jq filter expressions
-- (pending) - Phase 3-4: Interpreter and built-in functions
-- (pending) - Phase 5: Expanded built-ins and format functions
+- `b8f9688` - Phase 3-4: Interpreter and built-in functions
+- `e0f017d` - Phase 5: Expanded built-ins and format functions
+- `6420fdc` - Add more built-in functions (abs, bsearch, explode, etc.)
+- `c3e7ea4` - Implement assignment expressions (=, |=, +=, etc.)
 
 ## Notes
 - Reference C code is in `/jq` directory
