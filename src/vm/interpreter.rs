@@ -3887,7 +3887,7 @@ impl Interpreter {
                             let mut arr = match current {
                                 Jv::Array(a) => a,
                                 Jv::Null => JvArray::new(),
-                                _ => return Err(format!("Cannot index {} with number ({})", current.type_name(), idx)),
+                                _ => return Err(format!("Cannot index {} with number", current.type_name())),
                             };
                             let child = arr.get(idx).unwrap_or(Jv::Null);
                             let new_child = set_path(child, rest, value)?;

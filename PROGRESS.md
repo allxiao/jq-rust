@@ -312,7 +312,20 @@
 - [x] Fixed setpath error message to match jq format
 - [x] Fixed ltrimstr/rtrimstr error messages to match jq (use startswith/endswith)
 - [x] Fixed foreach to iterate over all init values (generator support)
-- [x] Integration tests: 460/527 jq.test cases passing (87.3%)
+- [x] Fixed setpath error for array path element ("Cannot update field at array index of array")
+- [x] Fixed getpath assignment error message format (no index in parens)
+- [x] Integration tests: 461/527 jq.test cases passing (87.5%)
+
+## Known Limitations
+
+The remaining test failures are due to:
+
+1. **Numeric precision** - Large integers (>2^53) aren't handled correctly by f64
+2. **Module system** - modulemeta and related functions not implemented
+3. **Complex path expressions** - `del(expr | .[indices])` and similar piped paths
+4. **Filter parameters as update targets** - `def inc(x): x |= .+1` patterns
+5. **Object key ordering** - Our HashMap doesn't preserve insertion order
+6. **Error message differences** - JSON parse errors use different format than jq
 
 ## Phase Progress
 

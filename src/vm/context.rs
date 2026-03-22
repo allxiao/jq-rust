@@ -1249,6 +1249,7 @@ fn builtin_setpath(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterat
                     Err("array index must be integer".to_string())
                 }
             }
+            Jv::Array(_) => Err("Cannot update field at array index of array".to_string()),
             _ => Err("path element must be string or number".to_string()),
         }
     }
