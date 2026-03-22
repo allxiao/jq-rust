@@ -3686,6 +3686,56 @@ impl Interpreter {
                     }
                 }
             }
+            ExprKind::Iterator { expr: base, optional: _ } => {
+                // .[] = value - set all elements to value
+                match &base.kind {
+                    ExprKind::Identity => {
+                        // Direct iterator on input: .[] = value
+                        match current {
+                            Jv::Array(arr) => {
+                                // Replace all elements with value
+                                let new_arr: Vec<Jv> = (0..arr.len()).map(|_| value.clone()).collect();
+                                Ok(Jv::from_vec(new_arr))
+                            }
+                            Jv::Object(obj) => {
+                                // Replace all values with value
+                                let mut new_obj = JvObject::new();
+                                for (k, _) in obj.iter() {
+                                    new_obj.set(&k, value.clone());
+                                }
+                                Ok(Jv::Object(new_obj))
+                            }
+                            Jv::Null => {
+                                // .[] = v on null is null (no elements to update)
+                                Ok(Jv::Null)
+                            }
+                            _ => Err(format!("Cannot iterate over {}", current.type_name())),
+                        }
+                    }
+                    _ => {
+                        // Nested: get base value, apply iterator assignment, set back
+                        let mut base_interp = Interpreter { ctx: ctx.clone() };
+                        let base_val = match base_interp.eval_expr(base, current.clone(), ctx.clone()).next() {
+                            Some(Ok(v)) => v,
+                            Some(Err(e)) => return Err(e),
+                            None => Jv::Null,
+                        };
+
+                        // Apply inner assignment
+                        let inner_target = Expr::new(
+                            ExprKind::Iterator {
+                                expr: Box::new(Expr::new(ExprKind::Identity, target.span)),
+                                optional: false,
+                            },
+                            target.span,
+                        );
+                        let modified_base = Self::apply_assignment(base_val, &inner_target, value, _path, ctx.clone())?;
+
+                        // Now set modified base back to parent
+                        Self::apply_assignment(current, base, modified_base, _path, ctx)
+                    }
+                }
+            }
             ExprKind::Slice { expr: base, start, end, optional: _ } => {
                 // .[start:end] = value - slice assignment
                 let mut interp = Interpreter { ctx: ctx.clone() };
