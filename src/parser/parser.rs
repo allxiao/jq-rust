@@ -1224,7 +1224,8 @@ impl<'a> Parser<'a> {
         let start = self.current.span;
         self.expect(&TokenKind::Reduce)?;
 
-        let expr = Box::new(self.parse_postfix_expr()?);
+        // Allow multiplicative expressions (like .[] / .[] for division) in iterator position
+        let expr = Box::new(self.parse_mul_expr()?);
         self.expect(&TokenKind::As)?;
 
         let pattern = self.parse_pattern()?;
@@ -1252,7 +1253,8 @@ impl<'a> Parser<'a> {
         let start = self.current.span;
         self.expect(&TokenKind::Foreach)?;
 
-        let expr = Box::new(self.parse_postfix_expr()?);
+        // Allow multiplicative expressions (like .[] / .[] for division) in iterator position
+        let expr = Box::new(self.parse_mul_expr()?);
         self.expect(&TokenKind::As)?;
 
         let pattern = self.parse_pattern()?;
