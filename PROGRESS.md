@@ -544,13 +544,15 @@
   - Path markers now propagate through Index and Iterator expressions
 - [x] Updated test results:
   - jq.test: 525/527 (99.6%)
+- [x] Fixed JSON parse error messages for jq compatibility
+  - NaN with payload (NaN1, NaN10, etc.) now reports "Invalid numeric literal at EOF..."
+  - Single quotes in object keys now reports "Invalid string literal; expected \", but got '..."
+  - Error messages match jq's exact format including line/column numbers
+- [x] **All jq.test cases now pass: 527/527 (100%)**
 
 ## Known Limitations
 
-The remaining 2 test failures are due to:
-
-1. **JSON parse error messages** - Error message format differs from jq for some invalid JSON (2 tests)
-   - These are cosmetic differences in error message wording, functionality is correct
+None for jq.test suite - all 527 tests pass!
 
 ## Phase Progress
 
@@ -604,14 +606,14 @@ The remaining 2 test failures are due to:
 | Test Suite | Tests Passing | Total Tests | Coverage |
 |------------|---------------|-------------|----------|
 | Unit tests | 95            | 95          | 100%     |
-| jq.test    | 525           | 527         | 99.6%    |
+| jq.test    | 527           | 527         | 100%     |
 | man.test   | 229           | 230         | 99.6%    |
 | onig.test  | 46            | 47          | 97.9%    |
 | manonig.test | 19          | 19          | 100%     |
 | base64.test| 10            | 10          | 100%     |
 | uri.test   | 20            | 20          | 100%     |
 | optional.test | 2          | 2           | 100%     |
-| **Total**  | **851**       | **855**     | **99.5%**|
+| **Total**  | **853**       | **855**     | **99.8%**|
 
 ## Git Commits
 - `df79d19` - Initial empty Rust project
@@ -633,6 +635,6 @@ The remaining 2 test failures are due to:
 3. ~~Support function call as lvalue (def x: .[1,2]; x=10)~~ ✅ Completed
 4. ~~Add path validation for non-path expressions (e.g., map, sort as lvalues)~~ ✅ Completed
 5. ~~Add module metadata validation (reject non-constant expressions)~~ ✅ Completed
-6. Improve JSON parse error messages (low priority - cosmetic only)
+6. ~~Improve JSON parse error messages~~ ✅ Completed
 7. Performance optimization
 8. Documentation

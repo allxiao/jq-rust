@@ -2974,7 +2974,19 @@ fn builtin_fromjson(_ctx: &mut Context, input: Jv, _args: &[Jv]) -> Box<dyn Iter
             }
             match parse_json(str_val) {
                 Ok(v) => ok(v),
-                Err(e) => err(format!("invalid JSON: {}", e)),
+                Err(e) => {
+                    // Extract the error message
+                    let err_str = e.to_string();
+                    // For specific jq-style error messages, return them directly without prefix
+                    // These are: "Invalid numeric literal...", "Invalid string literal..."
+                    if err_str.contains("Invalid numeric literal") || err_str.contains("Invalid string literal") {
+                        // Extract the message after "parse error: "
+                        if let Some(msg) = err_str.strip_prefix("parse error: ") {
+                            return err(msg.to_string());
+                        }
+                    }
+                    err(format!("invalid JSON: {}", e))
+                }
             }
         }
         _ => err("fromjson requires string input".to_string()),

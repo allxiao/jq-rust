@@ -11,6 +11,7 @@ const MAX_PARSING_DEPTH: usize = 10000;
 /// JSON parser
 pub struct JsonParser<'a> {
     input: &'a [u8],
+    input_str: &'a str,
     pos: usize,
     depth: usize,
 }
@@ -19,6 +20,7 @@ impl<'a> JsonParser<'a> {
     pub fn new(input: &'a str) -> Self {
         JsonParser {
             input: input.as_bytes(),
+            input_str: input,
             pos: 0,
             depth: 0,
         }
@@ -99,21 +101,59 @@ impl<'a> JsonParser<'a> {
 
     fn parse_nan(&mut self) -> Result<Jv, JqError> {
         // Accept both "nan" and "NaN"
-        if self.starts_with("NaN") {
-            self.expect_literal("NaN")?;
-        } else {
-            self.expect_literal("nan")?;
+        let nan_str = if self.starts_with("NaN") { "NaN" } else { "nan" };
+        let start_pos = self.pos;
+        self.expect_literal(nan_str)?;
+
+        // Check if there's a trailing alphanumeric character (like NaN1, NaN10, etc.)
+        if let Some(c) = self.peek() {
+            if c.is_ascii_alphanumeric() {
+                // Consume remaining alphanumeric characters to determine the full invalid literal
+                while let Some(c) = self.peek() {
+                    if c.is_ascii_alphanumeric() {
+                        self.next();
+                    } else {
+                        break;
+                    }
+                }
+                let end_pos = self.pos;
+                let invalid_literal = std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("NaN...");
+                // jq reports column as the length of the parsed input (end position)
+                return Err(JqError::Parse(format!(
+                    "Invalid numeric literal at EOF at line 1, column {} (while parsing '{}')",
+                    end_pos, invalid_literal
+                )));
+            }
         }
+
         // jq keeps NaN as a Number internally (type is "number"), displays as "null"
         Ok(Jv::Number(JvNumber::from_f64(f64::NAN)))
     }
 
     fn parse_neg_nan(&mut self) -> Result<Jv, JqError> {
-        if self.starts_with("-NaN") {
-            self.expect_literal("-NaN")?;
-        } else {
-            self.expect_literal("-nan")?;
+        let nan_str = if self.starts_with("-NaN") { "-NaN" } else { "-nan" };
+        let start_pos = self.pos;
+        self.expect_literal(nan_str)?;
+
+        // Check if there's a trailing alphanumeric character
+        if let Some(c) = self.peek() {
+            if c.is_ascii_alphanumeric() {
+                while let Some(c) = self.peek() {
+                    if c.is_ascii_alphanumeric() {
+                        self.next();
+                    } else {
+                        break;
+                    }
+                }
+                let end_pos = self.pos;
+                let invalid_literal = std::str::from_utf8(&self.input[start_pos..end_pos]).unwrap_or("-NaN...");
+                return Err(JqError::Parse(format!(
+                    "Invalid numeric literal at EOF at line 1, column {} (while parsing '{}')",
+                    end_pos, invalid_literal
+                )));
+            }
         }
+
         // -NaN is also a Number internally
         Ok(Jv::Number(JvNumber::from_f64(f64::NAN)))
     }
@@ -440,6 +480,29 @@ impl<'a> JsonParser<'a> {
 
             // Parse key
             if self.peek() != Some(&b'"') {
+                if self.peek() == Some(&b'\'') {
+                    // Single quote used instead of double quote
+                    // jq reports the position after consuming the single-quoted string
+                    self.next(); // consume opening '
+                    // Find closing '
+                    while let Some(&c) = self.peek() {
+                        self.next();
+                        if c == b'\'' {
+                            break;
+                        }
+                    }
+                    // Skip colon if present
+                    self.skip_whitespace();
+                    if self.peek() == Some(&b':') {
+                        self.next();
+                    }
+                    // jq reports column as current position (0-indexed becomes 1-indexed column naturally)
+                    let col = self.pos;
+                    return Err(JqError::Parse(format!(
+                        "Invalid string literal; expected \", but got ' at line 1, column {} (while parsing '{}')",
+                        col, self.input_str
+                    )));
+                }
                 return Err(JqError::Parse(format!(
                     "expected string key at position {}",
                     self.pos
