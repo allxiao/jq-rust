@@ -221,6 +221,11 @@
 - [x] Added `del(empty)` support (returns input unchanged)
 - [x] All 95 unit tests passing
 - [x] Integration tests: 349/527 jq.test cases passing (66%)
+- [x] Fixed `split("")` to split into individual characters
+- [x] Fixed `tonumber` null byte error messages to match jq format
+- [x] Fixed `utf8bytelength` error messages to include type and value
+- [x] Added `."string"` field access syntax support in parser
+- [x] Integration tests: 352/527 jq.test cases passing (67%)
 
 ## Phase Progress
 
