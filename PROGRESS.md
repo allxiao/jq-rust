@@ -246,6 +246,9 @@
 - [x] Added date/time functions: gmtime, mktime, strftime, strptime
 - [x] Added chrono crate dependency for date handling
 - [x] Integration tests: 388/527 jq.test cases passing (74%)
+- [x] Fixed gmtime to preserve fractional seconds
+- [x] Added input validation to strftime/mktime
+- [x] Integration tests: 392/527 jq.test cases passing (74%)
 
 ## Phase Progress
 
