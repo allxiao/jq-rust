@@ -4474,12 +4474,16 @@ fn format_value_for_error(v: &Jv) -> String {
     match v {
         Jv::String(s) => {
             let str_val = s.as_str();
-            // Count characters, not bytes, to handle UTF-8 properly
-            let char_count: usize = str_val.chars().count();
-            if char_count > 24 {
-                // jq truncates strings to 24 chars (no closing quote) + "..."
-                let truncated: String = str_val.chars().take(24).collect();
-                format!("string (\"{}...\")", truncated.replace('"', "\\\""))
+            // jq 1.8.1 truncates at 10 bytes (not characters)
+            let byte_len = str_val.len();
+            if byte_len > 10 {
+                // Find the character boundary at or before 10 bytes
+                let mut truncate_at = 10;
+                while truncate_at > 0 && !str_val.is_char_boundary(truncate_at) {
+                    truncate_at -= 1;
+                }
+                let truncated = &str_val[..truncate_at];
+                format!("string (\"{}...)", truncated.replace('"', "\\\""))
             } else {
                 format!("string (\"{}\")", str_val.replace('"', "\\\""))
             }
