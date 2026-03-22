@@ -348,6 +348,16 @@ fn err(msg: String) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     Box::new(std::iter::once(Err(msg)))
 }
 
+/// Convert a byte offset to a character (codepoint) offset in a UTF-8 string
+fn byte_offset_to_char_offset(s: &str, byte_offset: usize) -> usize {
+    s[..byte_offset].chars().count()
+}
+
+/// Convert a byte length to a character (codepoint) length in a UTF-8 string slice
+fn byte_len_to_char_len(s: &str) -> usize {
+    s.chars().count()
+}
+
 fn builtin_empty(_ctx: &mut Context, _input: Jv, _args: &[Jv]) -> Box<dyn Iterator<Item = Result<Jv, String>>> {
     Box::new(std::iter::empty())
 }
@@ -2179,10 +2189,11 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                 Ok(re) => {
                     // Get capture group names (skip index 0 which is the full match)
                     let capture_names: Vec<Option<&str>> = re.capture_names().skip(1).collect();
+                    let s_str = s.as_str();
 
                     if global {
                         // Global matching - return all matches
-                        let matches: Vec<Jv> = re.captures_iter(s.as_str())
+                        let matches: Vec<Jv> = re.captures_iter(s_str)
                             .filter(|caps| {
                                 // Skip empty matches if 'n' flag is set
                                 if no_empty {
@@ -2194,8 +2205,9 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                             .map(|caps| {
                                 let m = caps.get(0).unwrap();
                                 let mut obj = crate::jv::JvObject::new();
-                                obj.set("offset", Jv::from_i64(m.start() as i64));
-                                obj.set("length", Jv::from_i64(m.len() as i64));
+                                // Convert byte offsets to character offsets
+                                obj.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
+                                obj.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
                                 obj.set("string", Jv::string(m.as_str()));
 
                                 // Capture groups with names
@@ -2206,8 +2218,8 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                         match c {
                                             Some(m) => {
                                                 let mut g = crate::jv::JvObject::new();
-                                                g.set("offset", Jv::from_i64(m.start() as i64));
-                                                g.set("length", Jv::from_i64(m.len() as i64));
+                                                g.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
+                                                g.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
                                                 g.set("string", Jv::string(m.as_str()));
                                                 g.set("name", match name {
                                                     Some(n) => Jv::string(n),
@@ -2241,7 +2253,7 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                             Box::new(matches.into_iter().map(Ok))
                         }
                     } else {
-                        if let Some(caps) = re.captures(s.as_str()) {
+                        if let Some(caps) = re.captures(s_str) {
                             let m = caps.get(0).unwrap();
 
                             // Skip empty matches if 'n' flag is set
@@ -2250,8 +2262,9 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                             }
 
                             let mut obj = crate::jv::JvObject::new();
-                            obj.set("offset", Jv::from_i64(m.start() as i64));
-                            obj.set("length", Jv::from_i64(m.len() as i64));
+                            // Convert byte offsets to character offsets
+                            obj.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
+                            obj.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
                             obj.set("string", Jv::string(m.as_str()));
 
                             // Capture groups with names
@@ -2262,8 +2275,8 @@ fn builtin_match(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Iterator
                                     match c {
                                         Some(m) => {
                                             let mut g = crate::jv::JvObject::new();
-                                            g.set("offset", Jv::from_i64(m.start() as i64));
-                                            g.set("length", Jv::from_i64(m.len() as i64));
+                                            g.set("offset", Jv::from_i64(byte_offset_to_char_offset(s_str, m.start()) as i64));
+                                            g.set("length", Jv::from_i64(byte_len_to_char_len(m.as_str()) as i64));
                                             g.set("string", Jv::string(m.as_str()));
                                             g.set("name", match name {
                                                 Some(n) => Jv::string(n),
