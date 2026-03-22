@@ -704,7 +704,7 @@ fn builtin_strftime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn Itera
         _ => return err("strftime/1 requires a string format".to_string()),
     };
 
-    use chrono::{TimeZone, Datelike, Timelike, NaiveDate};
+    use chrono::{TimeZone, NaiveDate};
 
     match &input {
         Jv::Number(n) => {
@@ -751,7 +751,7 @@ fn builtin_strflocaltime(_ctx: &mut Context, input: Jv, args: &[Jv]) -> Box<dyn 
         _ => return err("strflocaltime/1 requires a string format".to_string()),
     };
 
-    use chrono::{TimeZone, Datelike, Timelike, NaiveDate};
+    use chrono::{TimeZone, NaiveDate};
 
     match &input {
         Jv::Number(n) => {

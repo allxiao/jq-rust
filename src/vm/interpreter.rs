@@ -359,7 +359,7 @@ impl Interpreter {
 
             ExprKind::TryCatch { expr: try_expr, catch } => {
                 let catch_expr = catch.clone();
-                let input_clone = input.clone();
+                let _input_clone = input.clone();
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
@@ -532,7 +532,7 @@ impl Interpreter {
                 let ctx_clone = ctx.clone();
 
                 let mut this = Interpreter { ctx: ctx.clone() };
-                let mut left_results = this.eval_expr(left, input, ctx_clone.clone()).peekable();
+                let left_results = this.eval_expr(left, input, ctx_clone.clone()).peekable();
 
                 // Try to get results from left
                 let mut got_result = false;
@@ -604,7 +604,7 @@ impl Interpreter {
                         match result {
                             Err(e) => Box::new(std::iter::once(Err(e))) as EvalResult,
                             Ok(val) => {
-                                let mut ctx_mut = ctx_clone.borrow_mut();
+                                let ctx_mut = ctx_clone.borrow_mut();
                                 if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
                                     let builtin_fn = *builtin;
                                     drop(ctx_mut);
@@ -617,7 +617,7 @@ impl Interpreter {
                     }))
                 } else {
                     // No expression - apply format to input
-                    let mut ctx_mut = ctx_clone.borrow_mut();
+                    let ctx_mut = ctx_clone.borrow_mut();
                     if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
                         let builtin_fn = *builtin;
                         drop(ctx_mut);
@@ -912,10 +912,6 @@ impl Interpreter {
             ExprKind::Break(label) => {
                 // Signal a break to the corresponding label
                 Box::new(std::iter::once(Err(make_break_signal(label))))
-            }
-
-            _ => {
-                Box::new(std::iter::once(Err(format!("expression type not yet implemented: {:?}", expr.kind))))
             }
         }
     }
@@ -2642,7 +2638,7 @@ impl Interpreter {
         // repeat(f) - repeatedly apply f, yielding each result
         let expr_clone = expr.clone();
         let ctx_clone = ctx.clone();
-        let mut current = input;
+        let current = input;
 
         // Use an iterator that repeatedly applies expr
         struct RepeatIter {
@@ -3275,7 +3271,7 @@ impl Interpreter {
                             };
 
                             // Apply format to the string value
-                            let mut ctx_mut = ctx.borrow_mut();
+                            let ctx_mut = ctx.borrow_mut();
                             if let Some(builtin) = ctx_mut.get_builtin(&format_name, 0) {
                                 let builtin_fn = *builtin;
                                 drop(ctx_mut);
@@ -4203,7 +4199,7 @@ fn format_value_for_error(v: &Jv) -> String {
                 format!("number ({})", n_str)
             }
         }
-        Jv::Object(obj) => {
+        Jv::Object(_obj) => {
             // Format object with nested truncation like jq
             use crate::jv::{JvPrintOptions, print_jv_with_options};
             let opts = JvPrintOptions::compact();

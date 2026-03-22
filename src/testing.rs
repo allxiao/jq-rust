@@ -3,14 +3,12 @@
 //! Parses the jq test file format (jq.test, base64.test, etc.)
 //! and runs tests against our interpreter.
 
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 
 use crate::jv::{parse_json, print_jv_with_options, JvPrintOptions};
 use crate::{interpret, parse, Jv};
 
 /// Timeout for a single test case (in seconds)
+#[allow(dead_code)]
 const TEST_TIMEOUT_SECS: u64 = 2;
 
 /// A single test case parsed from a .test file

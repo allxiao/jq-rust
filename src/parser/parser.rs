@@ -26,6 +26,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
     previous: Token,
+    #[allow(dead_code)]
     errors: Vec<ParseError>,
 }
 
@@ -73,7 +74,7 @@ impl<'a> Parser<'a> {
 
             // Handle alternative patterns with ?//
             while self.check(&TokenKind::QuestionDoubleSlash) {
-                let alt_start = self.current.span;
+                let _alt_start = self.current.span;
                 self.advance();
                 let alt_pattern = self.parse_pattern()?;
                 let span = pattern.span.merge(alt_pattern.span);
