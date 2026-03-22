@@ -3108,6 +3108,49 @@ impl Interpreter {
                     // For pipes, we need to traverse left first, then right
                     let left_paths = collect_paths(left, input, ctx.clone(), current_path);
                     for path in left_paths {
+                        // Check if this path contains an invalid marker
+                        if path.len() >= 2 {
+                            if let Some(Jv::String(marker)) = path.get(path.len() - 2) {
+                                if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                                    // Found invalid path marker
+                                    let result_value = path.last().unwrap();
+                                    use crate::jv::print_jv;
+                                    let formatted = print_jv(result_value);
+
+                                    // Check what kind of access is being attempted on the right side
+                                    let error_msg = match &right.kind {
+                                        ExprKind::Index { index, .. } => {
+                                            // Evaluate index to get the access key
+                                            let mut interp = Interpreter { ctx: ctx.clone() };
+                                            match interp.eval_expr(index, result_value.clone(), ctx.clone()).next() {
+                                                Some(Ok(Jv::Number(n))) => {
+                                                    format!("Invalid path expression near attempt to access element {} of {}", n, formatted)
+                                                }
+                                                Some(Ok(Jv::String(s))) => {
+                                                    format!("Invalid path expression near attempt to access element \"{}\" of {}", s.as_str(), formatted)
+                                                }
+                                                _ => format!("Invalid path expression with result {}", formatted)
+                                            }
+                                        }
+                                        ExprKind::Iterator { .. } => {
+                                            format!("Invalid path expression near attempt to iterate through {}", formatted)
+                                        }
+                                        ExprKind::Field(name) => {
+                                            format!("Invalid path expression near attempt to access element \"{}\" of {}", name, formatted)
+                                        }
+                                        _ => format!("Invalid path expression with result {}", formatted)
+                                    };
+
+                                    // Create error marker with the specific message
+                                    let mut error_path = Vec::new();
+                                    error_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                                    error_path.push(Jv::string(error_msg));
+                                    paths.push(error_path);
+                                    continue;
+                                }
+                            }
+                        }
+
                         // Navigate to the value at this path, then continue with right
                         let value_at_path = get_value_at_path(input, &path);
                         let right_paths = collect_paths(right, &value_at_path, ctx.clone(), path);
@@ -3203,10 +3246,22 @@ impl Interpreter {
                         new_path.push(Jv::from_i64(-1));
                         paths.push(new_path);
                     } else {
-                        // For other function calls, evaluate and check if it produces output
+                        // For other function calls (map, sort, etc.), they transform values
+                        // and are not valid path expressions.
+                        // However, we need to return an error with the result value
+                        // to match jq's error message format.
+                        // For now, we evaluate to get the result and store it as a special marker.
                         let mut interp = Interpreter { ctx: ctx.clone() };
-                        if interp.eval_expr(expr, input.clone(), ctx).next().is_some() {
-                            paths.push(current_path);
+                        match interp.eval_expr(expr, input.clone(), ctx).next() {
+                            Some(Ok(result)) => {
+                                // Mark this as an invalid path by returning a special sentinel
+                                // We'll detect this later and generate the appropriate error
+                                let mut marker_path = current_path;
+                                marker_path.push(Jv::string("__INVALID_PATH_MARKER__"));
+                                marker_path.push(result);
+                                paths.push(marker_path);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -3241,7 +3296,29 @@ impl Interpreter {
 
         let all_paths = collect_paths(filter, &input, ctx, Vec::new());
         let results: Vec<_> = all_paths.into_iter()
-            .map(|p| Ok(Jv::from_vec(p)))
+            .map(|p| {
+                // Check for invalid path marker
+                if p.len() >= 2 {
+                    if let Some(Jv::String(marker)) = p.first() {
+                        if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                            // New format: marker followed by error message string
+                            if let Some(Jv::String(error_msg)) = p.get(1) {
+                                return Err(error_msg.as_str().to_string());
+                            }
+                        }
+                    }
+                    if let Some(Jv::String(marker)) = p.get(p.len() - 2) {
+                        if marker.as_str() == "__INVALID_PATH_MARKER__" {
+                            // Old format: path followed by marker and result
+                            let result_value = p.last().unwrap();
+                            use crate::jv::print_jv;
+                            let formatted = print_jv(result_value);
+                            return Err(format!("Invalid path expression with result {}", formatted));
+                        }
+                    }
+                }
+                Ok(Jv::from_vec(p))
+            })
             .collect();
         Box::new(results.into_iter())
     }
