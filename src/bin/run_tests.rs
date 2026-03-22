@@ -1,12 +1,25 @@
 //! Test runner binary for jq compatibility tests
 //!
-//! Usage: cargo run --bin run-tests -- <test-file> [--verbose] [--fail-fast] [--filter <str>]
+//! Usage: cargo run --bin run-tests -- [test-file] [--verbose] [--fail-fast] [--filter <str>]
+//!
+//! If no test file is specified, runs all bundled test files.
 
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 use jqr::testing::{parse_test_file, run_test_case, TestCase, TestOutcome};
+
+/// Get the path to bundled test data
+fn get_test_data_dir() -> PathBuf {
+    // When run via cargo, CARGO_MANIFEST_DIR points to the crate root
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        return PathBuf::from(manifest_dir).join("tests").join("data");
+    }
+    // Fallback: try relative to current dir
+    PathBuf::from("tests").join("data")
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -16,6 +29,7 @@ fn main() {
     let mut fail_fast = false;
     let mut filter_str = None;
     let mut show_errors = false;
+    let mut run_all = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -23,6 +37,7 @@ fn main() {
             "--verbose" | "-v" => verbose = true,
             "--fail-fast" | "-f" => fail_fast = true,
             "--errors" | "-e" => show_errors = true,
+            "--all" | "-a" => run_all = true,
             "--filter" => {
                 i += 1;
                 if i < args.len() {
@@ -30,13 +45,26 @@ fn main() {
                 }
             }
             "--help" | "-h" => {
-                eprintln!("Usage: run-tests <test-file> [--verbose] [--fail-fast] [--filter <str>] [--errors]");
+                eprintln!("Usage: run-tests [test-file] [options]");
+                eprintln!();
+                eprintln!("If no test file is specified, runs the bundled jq.test file.");
                 eprintln!();
                 eprintln!("Options:");
+                eprintln!("  --all, -a         Run all bundled test files");
                 eprintln!("  --verbose, -v     Show all test results including passes");
                 eprintln!("  --fail-fast, -f   Stop on first failure");
                 eprintln!("  --filter <str>    Only run tests whose filter contains <str>");
                 eprintln!("  --errors, -e      Show parse/runtime errors");
+                eprintln!();
+                eprintln!("Bundled test files:");
+                let test_dir = get_test_data_dir();
+                if test_dir.exists() {
+                    for entry in fs::read_dir(&test_dir).unwrap().flatten() {
+                        if entry.path().extension().map_or(false, |e| e == "test") {
+                            eprintln!("  {}", entry.path().display());
+                        }
+                    }
+                }
                 process::exit(0);
             }
             s if test_file.is_none() && !s.starts_with('-') => {
@@ -50,26 +78,80 @@ fn main() {
         i += 1;
     }
 
-    let test_file = match test_file {
-        Some(f) => f,
-        None => {
-            eprintln!("Usage: run-tests <test-file> [options]");
-            process::exit(1);
-        }
+    // Determine which test files to run
+    let test_files: Vec<PathBuf> = if run_all {
+        // Run all bundled test files
+        let test_dir = get_test_data_dir();
+        let mut files: Vec<PathBuf> = fs::read_dir(&test_dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "test"))
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        files
+    } else if let Some(f) = test_file {
+        vec![PathBuf::from(f)]
+    } else {
+        // Default: run jq.test from bundled data
+        vec![get_test_data_dir().join("jq.test")]
     };
 
-    let content = match fs::read_to_string(&test_file) {
+    let mut total_pass = 0;
+    let mut total_fail = 0;
+    let mut total_error = 0;
+
+    for test_file in &test_files {
+        let (pass, fail, error) = run_test_file(
+            test_file,
+            verbose,
+            fail_fast,
+            show_errors,
+            filter_str.as_deref(),
+        );
+        total_pass += pass;
+        total_fail += fail;
+        total_error += error;
+
+        if fail_fast && (fail > 0 || error > 0) {
+            break;
+        }
+    }
+
+    if test_files.len() > 1 {
+        println!();
+        println!("========================================");
+        println!("Total Results");
+        println!("========================================");
+        println!(
+            "Pass: {}  Fail: {}  Error: {}",
+            total_pass, total_fail, total_error
+        );
+    }
+
+    // Exit with appropriate code
+    if total_fail > 0 || total_error > 0 {
+        process::exit(1);
+    }
+}
+
+fn run_test_file(
+    test_file: &PathBuf,
+    verbose: bool,
+    fail_fast: bool,
+    show_errors: bool,
+    filter_str: Option<&str>,
+) -> (usize, usize, usize) {
+    let content = match fs::read_to_string(test_file) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Cannot read {}: {}", test_file, e);
-            process::exit(1);
+            eprintln!("Cannot read {}: {}", test_file.display(), e);
+            return (0, 0, 1);
         }
     };
 
     // Set module search path to the modules directory relative to test file
-    use std::path::PathBuf;
-    let test_path = PathBuf::from(&test_file);
-    if let Some(parent) = test_path.parent() {
+    if let Some(parent) = test_file.parent() {
         let modules_dir = parent.join("modules");
         if modules_dir.exists() {
             jqr::set_module_search_path(Some(modules_dir));
@@ -102,8 +184,8 @@ fn main() {
         };
 
         // Apply filter
-        if let Some(ref f) = filter_str {
-            if !filter.contains(f.as_str()) {
+        if let Some(f) = filter_str {
+            if !filter.contains(f) {
                 skip_count += 1;
                 continue;
             }
@@ -150,7 +232,7 @@ fn main() {
     // Summary
     println!();
     println!("========================================");
-    println!("Test Results for: {}", test_file);
+    println!("Test Results for: {}", test_file.display());
     println!("========================================");
     println!(
         "Total: {}  Pass: {}  Fail: {}  Error: {}  Skip: {}",
@@ -184,8 +266,5 @@ fn main() {
         }
     }
 
-    // Exit with appropriate code
-    if fail_count > 0 || error_count > 0 {
-        process::exit(1);
-    }
+    (pass_count, fail_count, error_count)
 }

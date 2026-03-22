@@ -32,19 +32,14 @@ fn jq_test_suite_baseline() {
 }
 
 fn run_test_suite() -> (usize, usize, usize) {
-    // Find the jq.test file - try relative paths from workspace root
-    let test_paths = [
-        "../../jq/tests/jq.test",
-        "../jq/tests/jq.test",
-        "jq/tests/jq.test",
-    ];
+    // Use test data bundled with this crate
+    let test_file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("data")
+        .join("jq.test");
 
-    let (test_file_path, content) = test_paths
-        .iter()
-        .find_map(|p| {
-            std::fs::read_to_string(p).ok().map(|c| (PathBuf::from(p), c))
-        })
-        .expect("Could not find jq/tests/jq.test");
+    let content = std::fs::read_to_string(&test_file_path)
+        .expect("Could not find tests/data/jq.test - run from project root");
 
     // Set module search path to the directory containing the test modules
     let modules_dir = test_file_path.parent().unwrap().join("modules");
