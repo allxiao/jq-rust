@@ -1,6 +1,6 @@
 [package]
 name = "jq-rust"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
 license = "MIT"

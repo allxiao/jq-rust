@@ -12,7 +12,7 @@ use jq_rust::{interpret_with_source, parse, Jv};
 /// jqr - commandline JSON processor (Rust implementation of jq)
 #[derive(Parser, Debug)]
 #[command(name = "jqr")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(
     about = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
 )]
