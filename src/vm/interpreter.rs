@@ -7456,9 +7456,288 @@ pub fn interpret(expr: &Expr, input: Jv) -> EvalResult {
     interp.eval(expr, input)
 }
 
+/// Collect undefined function/variable errors by walking the AST in source order
+fn collect_undefined_errors(
+    expr: &Expr,
+    ctx: &Rc<RefCell<Context>>,
+    defined_vars: &mut std::collections::HashSet<String>,
+    defined_funcs: &mut std::collections::HashSet<(String, usize)>,
+    errors: &mut Vec<(Span, String)>,
+) {
+    match &expr.kind {
+        ExprKind::FunctionCall { module, name, args } => {
+            let arity = args.len();
+
+            // Check if function is defined
+            let is_defined = if let Some(mod_name) = module {
+                ctx.borrow().lookup_module_function(mod_name, name, arity).is_some()
+                    || ctx.borrow().lookup_value(&format!("{}::{}", mod_name, name)).is_some()
+            } else {
+                // Check locally defined functions
+                defined_funcs.contains(&(name.clone(), arity))
+                    // Check user-defined function in context
+                    || ctx.borrow().lookup_function(name, arity).is_some()
+                    // Check builtin
+                    || ctx.borrow().has_builtin(name, arity)
+                    // Check expression binding
+                    || (arity == 0 && ctx.borrow().lookup_expr_with_context(name).is_some())
+                    // Check special built-in higher-order functions
+                    || matches!((name.as_str(), arity),
+                        ("map", 1) | ("select", 1) | ("recurse", 0..=2) | ("recurse_down", 0) |
+                        ("range", 1..=3) | ("limit", 2) | ("skip", 2) | ("first", 1) |
+                        ("group_by", 1) | ("sort_by", 1) | ("unique_by", 1) | ("max_by", 1) |
+                        ("min_by", 1) | ("any", 0..=2) | ("all", 0..=2) | ("IN", 1..=2) |
+                        ("del", 1) | ("getpath", 1) | ("isempty", 1) | ("until", 2) |
+                        ("while", 2) | ("repeat", 1) | ("walk", 1) | ("env", 0) | ("$ENV", 0) |
+                        ("splits", 1) | ("with_entries", 1) | ("map_values", 1) | ("path", 1) |
+                        ("add", 1) | ("paths", 1) | ("pick", 1) | ("nth", 2) | ("last", 1) |
+                        ("INDEX", 1..=2) | ("JOIN", 2..=3) | ("sub", 2..=3) | ("gsub", 2..=3) |
+                        ("truncate_stream", 1) | ("fromstream", 1) |
+                        ("ascii_downcase", 0) | ("ascii_upcase", 0)
+                    )
+            };
+
+            if !is_defined {
+                let msg = if let Some(mod_name) = module {
+                    format!("{}::{}/{} is not defined", mod_name, name, arity)
+                } else {
+                    format!("{}/{} is not defined", name, arity)
+                };
+                errors.push((expr.span, msg));
+            }
+
+            // Recurse into arguments
+            for arg in args {
+                collect_undefined_errors(arg, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Variable(name) => {
+            if name != "ENV" && !defined_vars.contains(name) && ctx.borrow().lookup_value(name).is_none() {
+                errors.push((expr.span, format!("${} is not defined", name)));
+            }
+        }
+
+        ExprKind::Binding { expr: bind_expr, pattern, body } => {
+            // First check the binding expression
+            collect_undefined_errors(bind_expr, ctx, defined_vars, defined_funcs, errors);
+
+            // Add pattern variables to defined_vars for body
+            let mut new_vars = defined_vars.clone();
+            collect_pattern_vars(pattern, &mut new_vars);
+            collect_undefined_errors(body, ctx, &mut new_vars, defined_funcs, errors);
+        }
+
+        ExprKind::LocalDef { def, body } => {
+            // Add this function to defined_funcs before checking the body
+            let mut new_funcs = defined_funcs.clone();
+            new_funcs.insert((def.name.clone(), def.params.len()));
+
+            // Function parameters are available in the function body
+            let mut new_vars = defined_vars.clone();
+            for param in &def.params {
+                if param.is_binding {
+                    // Value parameter ($x) - treat as variable
+                    new_vars.insert(param.name.clone());
+                } else {
+                    // Filter parameter (x) - treat as 0-arity function
+                    new_funcs.insert((param.name.clone(), 0));
+                }
+            }
+            collect_undefined_errors(&def.body, ctx, &mut new_vars, &mut new_funcs, errors);
+
+            // Continue with the body after the function definition - function is now available
+            collect_undefined_errors(body, ctx, defined_vars, &mut new_funcs, errors);
+        }
+
+        // Recurse into child expressions
+        ExprKind::Pipe(left, right) => {
+            collect_undefined_errors(left, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(right, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::BinaryOp { left, right, .. } => {
+            collect_undefined_errors(left, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(right, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Comma(left, right) => {
+            collect_undefined_errors(left, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(right, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Index { expr: base, index, .. } => {
+            collect_undefined_errors(base, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(index, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Slice { expr: base, start, end, .. } => {
+            collect_undefined_errors(base, ctx, defined_vars, defined_funcs, errors);
+            if let Some(s) = start {
+                collect_undefined_errors(s, ctx, defined_vars, defined_funcs, errors);
+            }
+            if let Some(e) = end {
+                collect_undefined_errors(e, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Iterator { expr: inner, .. } => {
+            collect_undefined_errors(inner, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Array(inner) => {
+            if let Some(e) = inner {
+                collect_undefined_errors(e, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Object(entries) => {
+            for entry in entries {
+                match &entry.key {
+                    ObjectKey::Expr(e) => collect_undefined_errors(e, ctx, defined_vars, defined_funcs, errors),
+                    ObjectKey::Ident(_) | ObjectKey::String(_) | ObjectKey::Shorthand(_) => {}
+                }
+                collect_undefined_errors(&entry.value, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Conditional { condition, then_branch, else_branch } => {
+            collect_undefined_errors(condition, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(then_branch, ctx, defined_vars, defined_funcs, errors);
+            if let Some(eb) = else_branch {
+                collect_undefined_errors(eb, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::TryCatch { expr: try_expr, catch } => {
+            collect_undefined_errors(try_expr, ctx, defined_vars, defined_funcs, errors);
+            if let Some(ce) = catch {
+                collect_undefined_errors(ce, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Reduce { expr: iter_expr, pattern, init, update } => {
+            collect_undefined_errors(iter_expr, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(init, ctx, defined_vars, defined_funcs, errors);
+            let mut new_vars = defined_vars.clone();
+            collect_pattern_vars(pattern, &mut new_vars);
+            collect_undefined_errors(update, ctx, &mut new_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Foreach { expr: iter_expr, pattern, init, update, extract } => {
+            collect_undefined_errors(iter_expr, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(init, ctx, defined_vars, defined_funcs, errors);
+            let mut new_vars = defined_vars.clone();
+            collect_pattern_vars(pattern, &mut new_vars);
+            collect_undefined_errors(update, ctx, &mut new_vars, defined_funcs, errors);
+            if let Some(ex) = extract {
+                collect_undefined_errors(ex, ctx, &mut new_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Negate(inner) | ExprKind::Optional(inner) | ExprKind::Paren(inner) => {
+            collect_undefined_errors(inner, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Update { target, value } | ExprKind::UpdateOp { target, value, .. } |
+        ExprKind::Assign { target, value } => {
+            collect_undefined_errors(target, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(value, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::Alternative(left, right) => {
+            collect_undefined_errors(left, ctx, defined_vars, defined_funcs, errors);
+            collect_undefined_errors(right, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::StringInterp(parts) => {
+            for part in parts {
+                if let StringPart::Interp(e) = part {
+                    collect_undefined_errors(e, ctx, defined_vars, defined_funcs, errors);
+                }
+            }
+        }
+
+        ExprKind::Format { expr: inner, .. } => {
+            if let Some(e) = inner {
+                collect_undefined_errors(e, ctx, defined_vars, defined_funcs, errors);
+            }
+        }
+
+        ExprKind::Label { body, .. } => {
+            collect_undefined_errors(body, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        ExprKind::WithImports { body, .. } => {
+            collect_undefined_errors(body, ctx, defined_vars, defined_funcs, errors);
+        }
+
+        // Terminal expressions - no recursion needed
+        ExprKind::Identity | ExprKind::RecursiveDescent | ExprKind::Literal(_) |
+        ExprKind::Field(_) | ExprKind::Break(_) | ExprKind::Loc => {}
+    }
+}
+
+fn collect_pattern_vars(pattern: &Pattern, vars: &mut std::collections::HashSet<String>) {
+    match &pattern.kind {
+        PatternKind::Binding(name) => {
+            vars.insert(name.clone());
+        }
+        PatternKind::Array(patterns) => {
+            for p in patterns {
+                collect_pattern_vars(p, vars);
+            }
+        }
+        PatternKind::Object(entries) => {
+            for (_, p) in entries {
+                collect_pattern_vars(p, vars);
+            }
+        }
+        PatternKind::BoundPattern { name, pattern } => {
+            vars.insert(name.clone());
+            collect_pattern_vars(pattern, vars);
+        }
+        PatternKind::Alternative(p1, p2) => {
+            collect_pattern_vars(p1, vars);
+            collect_pattern_vars(p2, vars);
+        }
+    }
+}
+
 /// Interpret an expression with source information for rich error messages
 pub fn interpret_with_source(expr: &Expr, input: Jv, source: String, filename: String) -> EvalResult {
     let mut interp = Interpreter::with_source(source, filename);
+
+    // Collect undefined errors in source order
+    let mut errors = Vec::new();
+    let mut defined_vars = std::collections::HashSet::new();
+    let mut defined_funcs = std::collections::HashSet::new();
+    collect_undefined_errors(expr, &interp.ctx, &mut defined_vars, &mut defined_funcs, &mut errors);
+
+    if !errors.is_empty() {
+        // Sort by span start position to ensure source order
+        errors.sort_by_key(|(span, _)| span.start);
+
+        // Format all errors with source context
+        // Collect formatted errors inside the borrow scope
+        let formatted: Vec<Result<Jv, String>> = {
+            let ctx_ref = interp.ctx.borrow();
+            let source_info = ctx_ref.source_info();
+            errors.into_iter()
+                .map(|(span, msg)| {
+                    let formatted_msg = if let Some(si) = source_info {
+                        si.format_error(&msg, span)
+                    } else {
+                        msg
+                    };
+                    Err(formatted_msg)
+                })
+                .collect()
+        };
+
+        return Box::new(formatted.into_iter());
+    }
+
     interp.eval(expr, input)
 }
 
