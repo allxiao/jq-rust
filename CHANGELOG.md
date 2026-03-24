@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2024-03-22
+## [0.1.0] - 2026-03-24
 
 ### Added
 - Initial release of jq-rust (binary: `jqr`)
@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10-17% faster than jq C in most operations
 - Optimized object construction for common cases
 - Efficient reference counting with copy-on-write semantics
+
+### Changed
+- Project will not be published to crates.io (binary releases only)
 
 [Unreleased]: https://github.com/allxiao/jq-rust/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/allxiao/jq-rust/releases/tag/v0.1.0
