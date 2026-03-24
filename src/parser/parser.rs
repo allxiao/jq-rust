@@ -6,19 +6,75 @@ use super::ast::*;
 use super::lexer::Lexer;
 use super::token::{Span, Token, TokenKind};
 
-/// Parse error
+/// Parse error with source context for rich error messages
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub message: String,
     pub span: Span,
+    /// The original source code (for displaying context)
+    pub source: String,
+}
+
+impl ParseError {
+    /// Create a new parse error with source context
+    pub fn new(message: String, span: Span, source: &str) -> Self {
+        ParseError {
+            message,
+            span,
+            source: source.to_string(),
+        }
+    }
+
+    /// Compute line number (1-based) from byte position
+    pub fn line_number(&self) -> usize {
+        self.source[..self.span.start.min(self.source.len())]
+            .chars()
+            .filter(|&c| c == '\n')
+            .count()
+            + 1
+    }
+
+    /// Compute column number (1-based) from byte position
+    pub fn column_number(&self) -> usize {
+        let pos = self.span.start.min(self.source.len());
+        let line_start = self.source[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        pos - line_start + 1
+    }
+
+    /// Get the source line containing the error
+    pub fn source_line(&self) -> &str {
+        let pos = self.span.start.min(self.source.len());
+        let line_start = self.source[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_end = self.source[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(self.source.len());
+        &self.source[line_start..line_end]
+    }
+
+    /// Generate caret pointer line showing error position
+    fn caret_line(&self) -> String {
+        let col = self.column_number();
+        let width = (self.span.end.saturating_sub(self.span.start)).max(1);
+        // Create spaces for indentation (col - 1 spaces), then carets
+        format!("{}{}", " ".repeat(col - 1), "^".repeat(width))
+    }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format similar to jq:
+        // jq: error: syntax error, unexpected '=', expecting '}' at <top-level>, line 1, column 3:
+        //     {a=1, b=2}
+        //       ^
         write!(
             f,
-            "parse error at {}-{}: {}",
-            self.span.start, self.span.end, self.message
+            "{} at <top-level>, line {}, column {}:\n    {}\n    {}",
+            self.message,
+            self.line_number(),
+            self.column_number(),
+            self.source_line(),
+            self.caret_line()
         )
     }
 }
@@ -30,6 +86,8 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
     previous: Token,
+    /// The original source string for error messages
+    source: &'a str,
     #[allow(dead_code)]
     errors: Vec<ParseError>,
 }
@@ -43,6 +101,7 @@ impl<'a> Parser<'a> {
             lexer,
             current,
             previous: Token::new(TokenKind::Eof, Span::default()),
+            source: input,
             errors: Vec::new(),
         }
     }
@@ -1120,7 +1179,10 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            _ => Err(self.error(&format!("unexpected token: {}", token.kind))),
+            _ => Err(self.error(&format!(
+                "syntax error, unexpected {}",
+                token.kind.display_name()
+            ))),
         }
     }
 
@@ -1672,33 +1734,33 @@ impl<'a> Parser<'a> {
             self.advance();
             Ok(())
         } else {
-            Err(self.error(&format!("expected {:?}, got {:?}", kind, self.current.kind)))
+            Err(self.error(&format!(
+                "syntax error, unexpected {}, expecting {}",
+                self.current.kind.display_name(),
+                kind.display_name()
+            )))
         }
     }
 
     fn error(&self, message: &str) -> ParseError {
-        ParseError {
-            message: message.to_string(),
-            span: self.current.span,
-        }
+        ParseError::new(message.to_string(), self.current.span, self.source)
+    }
+
+    /// Create an error at a specific span (for errors not at current token)
+    fn error_at(&self, message: &str, span: Span) -> ParseError {
+        ParseError::new(message.to_string(), span, self.source)
     }
 
     /// Validate that module metadata is a constant object expression
     fn validate_module_metadata(&self, expr: &Expr) -> Result<(), ParseError> {
         // First check if it's constant (no variables, function calls, pipes, etc.)
         if !self.is_constant_expr(expr) {
-            return Err(ParseError {
-                message: "Module metadata must be constant".to_string(),
-                span: expr.span,
-            });
+            return Err(self.error_at("Module metadata must be constant", expr.span));
         }
 
         // Then check if it's an object
         if !matches!(expr.kind, ExprKind::Object(_)) {
-            return Err(ParseError {
-                message: "Module metadata must be an object".to_string(),
-                span: expr.span,
-            });
+            return Err(self.error_at("Module metadata must be an object", expr.span));
         }
 
         Ok(())
@@ -1729,7 +1791,10 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
     let program = parser.parse_program()?;
 
     if !parser.current.kind.is_eof() {
-        return Err(parser.error("unexpected token after expression"));
+        return Err(parser.error(&format!(
+            "syntax error, unexpected {}",
+            parser.current.kind.display_name()
+        )));
     }
 
     Ok(program)
@@ -1741,7 +1806,10 @@ pub fn parse_program_full(input: &str) -> Result<Program, ParseError> {
     let program = parser.parse_program_ast()?;
 
     if !parser.current.kind.is_eof() {
-        return Err(parser.error("unexpected token after expression"));
+        return Err(parser.error(&format!(
+            "syntax error, unexpected {}",
+            parser.current.kind.display_name()
+        )));
     }
 
     Ok(program)

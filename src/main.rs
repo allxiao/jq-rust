@@ -93,7 +93,8 @@ fn main() {
     let expr = match parse(&args.filter) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("jq-rust: compile error: {}", e);
+            eprintln!("jqr: error: {}", e);
+            eprintln!("jqr: 1 compile error");
             process::exit(3);
         }
     };
@@ -108,7 +109,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("jq-rust: {}", e);
+        eprintln!("jqr: {}", e);
         process::exit(5);
     }
 
@@ -146,7 +147,7 @@ fn run_filter(
                 }
             }
             Err(e) => {
-                eprintln!("jq-rust: error: {}", e);
+                eprintln!("jqr: error: {}", e);
                 *exit_code = 5;
             }
         }

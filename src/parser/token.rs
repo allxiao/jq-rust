@@ -198,6 +198,92 @@ impl TokenKind {
         matches!(self, TokenKind::Eof)
     }
 
+    /// Returns a human-readable name for the token, suitable for error messages.
+    /// Uses the same style as jq: symbols are quoted like `'='`, keywords are quoted.
+    pub fn display_name(&self) -> String {
+        match self {
+            // Literals
+            TokenKind::Number(_) | TokenKind::LiteralNumber(_) => "number".to_string(),
+            TokenKind::StringStart | TokenKind::StringEnd => "string".to_string(),
+            TokenKind::StringText(_) => "string content".to_string(),
+            TokenKind::StringInterpStart => "'\\('".to_string(),
+            TokenKind::StringInterpEnd => "')'".to_string(),
+
+            // Identifiers and special names
+            TokenKind::Ident(s) => format!("'{}'", s),
+            TokenKind::Field(s) => format!("'.{}'", s),
+            TokenKind::Binding(s) => format!("'${}'", s),
+            TokenKind::Format(s) => format!("'@{}'", s),
+
+            // Single-character operators
+            TokenKind::Dot => "'.'".to_string(),
+            TokenKind::Pipe => "'|'".to_string(),
+            TokenKind::Comma => "','".to_string(),
+            TokenKind::Colon => "':'".to_string(),
+            TokenKind::DoubleColon => "'::'".to_string(),
+            TokenKind::Semicolon => "';'".to_string(),
+            TokenKind::LParen => "'('".to_string(),
+            TokenKind::RParen => "')'".to_string(),
+            TokenKind::LBracket => "'['".to_string(),
+            TokenKind::RBracket => "']'".to_string(),
+            TokenKind::LBrace => "'{'".to_string(),
+            TokenKind::RBrace => "'}'".to_string(),
+            TokenKind::Question => "'?'".to_string(),
+            TokenKind::Eq => "'='".to_string(),
+            TokenKind::Plus => "'+'".to_string(),
+            TokenKind::Minus => "'-'".to_string(),
+            TokenKind::Star => "'*'".to_string(),
+            TokenKind::Slash => "'/'".to_string(),
+            TokenKind::Percent => "'%'".to_string(),
+            TokenKind::Lt => "'<'".to_string(),
+            TokenKind::Gt => "'>'".to_string(),
+            TokenKind::Dollar => "'$'".to_string(),
+
+            // Multi-character operators
+            TokenKind::DotDot => "'..'".to_string(),
+            TokenKind::EqEq => "'=='".to_string(),
+            TokenKind::NotEq => "'!='".to_string(),
+            TokenKind::LtEq => "'<='".to_string(),
+            TokenKind::GtEq => "'>='".to_string(),
+            TokenKind::DoubleSlash => "'//'".to_string(),
+            TokenKind::PipeEq => "'|='".to_string(),
+            TokenKind::PlusEq => "'+='".to_string(),
+            TokenKind::MinusEq => "'-='".to_string(),
+            TokenKind::StarEq => "'*='".to_string(),
+            TokenKind::SlashEq => "'/='".to_string(),
+            TokenKind::PercentEq => "'%='".to_string(),
+            TokenKind::DoubleSlashEq => "'//='".to_string(),
+            TokenKind::QuestionDoubleSlash => "'?//'".to_string(),
+
+            // Keywords
+            TokenKind::If => "'if'".to_string(),
+            TokenKind::Then => "'then'".to_string(),
+            TokenKind::Else => "'else'".to_string(),
+            TokenKind::Elif => "'elif'".to_string(),
+            TokenKind::End => "'end'".to_string(),
+            TokenKind::As => "'as'".to_string(),
+            TokenKind::Def => "'def'".to_string(),
+            TokenKind::Reduce => "'reduce'".to_string(),
+            TokenKind::Foreach => "'foreach'".to_string(),
+            TokenKind::Try => "'try'".to_string(),
+            TokenKind::Catch => "'catch'".to_string(),
+            TokenKind::And => "'and'".to_string(),
+            TokenKind::Or => "'or'".to_string(),
+            TokenKind::Not => "'not'".to_string(),
+            TokenKind::Import => "'import'".to_string(),
+            TokenKind::Include => "'include'".to_string(),
+            TokenKind::Module => "'module'".to_string(),
+            TokenKind::Label => "'label'".to_string(),
+            TokenKind::Break => "'break'".to_string(),
+            TokenKind::Loc => "'$__loc__'".to_string(),
+
+            // Special
+            TokenKind::Eof => "end of input".to_string(),
+            TokenKind::Invalid(c) => format!("'{}'", c),
+            TokenKind::Error(s) => s.clone(),
+        }
+    }
+
     /// Check if this is a keyword
     pub fn is_keyword(&self) -> bool {
         matches!(

@@ -230,6 +230,80 @@ pub enum ExprKind {
     },
 }
 
+impl ExprKind {
+    /// Returns a human-readable description of the expression type for error messages.
+    /// This avoids exposing internal type names to users.
+    pub fn describe(&self) -> String {
+        match self {
+            ExprKind::Identity => ".".to_string(),
+            ExprKind::RecursiveDescent => "..".to_string(),
+            ExprKind::Literal(lit) => match lit {
+                Literal::Null => "null".to_string(),
+                Literal::Bool(true) => "true".to_string(),
+                Literal::Bool(false) => "false".to_string(),
+                Literal::Number(n) => format!("{}", n),
+                Literal::LiteralNumber(s) => s.clone(),
+                Literal::String(s) => format!("\"{}\"", s),
+            },
+            ExprKind::Field(name) => format!(".{}", name),
+            ExprKind::Index { .. } => "index expression".to_string(),
+            ExprKind::Slice { .. } => "slice expression".to_string(),
+            ExprKind::Iterator { .. } => ".[]".to_string(),
+            ExprKind::Pipe(_, _) => "pipe expression".to_string(),
+            ExprKind::Comma(_, _) => "comma expression".to_string(),
+            ExprKind::Conditional { .. } => "if-then-else".to_string(),
+            ExprKind::TryCatch { .. } => "try-catch".to_string(),
+            ExprKind::Reduce { .. } => "reduce".to_string(),
+            ExprKind::Foreach { .. } => "foreach".to_string(),
+            ExprKind::FunctionCall { module, name, args } => {
+                let prefix = module
+                    .as_ref()
+                    .map(|m| format!("{}::", m))
+                    .unwrap_or_default();
+                if args.is_empty() {
+                    format!("{}{}", prefix, name)
+                } else {
+                    format!("{}{}(...)", prefix, name)
+                }
+            }
+            ExprKind::Variable(name) => format!("${}", name),
+            ExprKind::Negate(_) => "negation".to_string(),
+            ExprKind::Optional(_) => "optional expression".to_string(),
+            ExprKind::BinaryOp { op, .. } => match op {
+                BinaryOp::Add => "addition".to_string(),
+                BinaryOp::Sub => "subtraction".to_string(),
+                BinaryOp::Mul => "multiplication".to_string(),
+                BinaryOp::Div => "division".to_string(),
+                BinaryOp::Mod => "modulo".to_string(),
+                BinaryOp::Eq => "equality comparison".to_string(),
+                BinaryOp::Ne => "inequality comparison".to_string(),
+                BinaryOp::Lt => "less-than comparison".to_string(),
+                BinaryOp::Le => "less-or-equal comparison".to_string(),
+                BinaryOp::Gt => "greater-than comparison".to_string(),
+                BinaryOp::Ge => "greater-or-equal comparison".to_string(),
+                BinaryOp::And => "'and' expression".to_string(),
+                BinaryOp::Or => "'or' expression".to_string(),
+                BinaryOp::Alternative => "alternative expression".to_string(),
+            },
+            ExprKind::Array(_) => "array construction".to_string(),
+            ExprKind::Object(_) => "object construction".to_string(),
+            ExprKind::Binding { .. } => "'as' binding".to_string(),
+            ExprKind::Label { .. } => "label".to_string(),
+            ExprKind::Break(_) => "break".to_string(),
+            ExprKind::Loc => "$__loc__".to_string(),
+            ExprKind::StringInterp(_) => "string interpolation".to_string(),
+            ExprKind::Format { format, .. } => format!("@{}", format),
+            ExprKind::Update { .. } => "update expression".to_string(),
+            ExprKind::UpdateOp { .. } => "update operator".to_string(),
+            ExprKind::Assign { .. } => "assignment".to_string(),
+            ExprKind::Alternative(_, _) => "alternative expression".to_string(),
+            ExprKind::LocalDef { .. } => "local definition".to_string(),
+            ExprKind::Paren(_) => "parenthesized expression".to_string(),
+            ExprKind::WithImports { .. } => "module".to_string(),
+        }
+    }
+}
+
 /// Literal values
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {

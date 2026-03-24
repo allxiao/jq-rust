@@ -3813,9 +3813,9 @@ impl Interpreter {
                     return Ok(current);
                 }
                 // For other function calls, we can't delete from them
-                Err(format!("Cannot delete from expression: {:?}", target.kind))
+                Err(format!("Cannot delete from expression: {}", target.kind.describe()))
             }
-            _ => Err(format!("Cannot delete from expression: {:?}", target.kind)),
+            _ => Err(format!("Cannot delete from expression: {}", target.kind.describe())),
         }
     }
 
@@ -6922,7 +6922,7 @@ impl Interpreter {
                         return Err(format!("Invalid path expression with result {}", formatted));
                     }
                 }
-                Err(format!("Cannot assign to expression: {:?}", target.kind))
+                Err(format!("Cannot assign to expression: {}", target.kind.describe()))
             }
             ExprKind::Comma(left, right) => {
                 // (.a, .b) = value assigns value to both paths
@@ -6930,7 +6930,7 @@ impl Interpreter {
                     Self::apply_assignment(current, left, value.clone(), _path, ctx.clone())?;
                 Self::apply_assignment(result, right, value, _path, ctx)
             }
-            _ => Err(format!("Cannot assign to expression: {:?}", target.kind)),
+            _ => Err(format!("Cannot assign to expression: {}", target.kind.describe())),
         }
     }
 
