@@ -7,9 +7,9 @@
 mod ast;
 mod lexer;
 mod parser;
-mod token;
+pub mod token;
 
 pub use ast::*;
 pub use lexer::Lexer;
 pub use parser::{parse, parse_program_full, ParseError, Parser};
-pub use token::{Token, TokenKind};
+pub use token::{Span, Token, TokenKind};

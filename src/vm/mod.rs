@@ -7,4 +7,4 @@ mod context;
 mod interpreter;
 
 pub use context::Context;
-pub use interpreter::{interpret, Interpreter};
+pub use interpreter::{interpret, interpret_with_source, Interpreter};

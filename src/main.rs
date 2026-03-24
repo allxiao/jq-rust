@@ -7,7 +7,7 @@ use std::process;
 
 use clap::Parser;
 use jq_rust::jv::{parse_json_stream, print_jv_with_options, JvPrintOptions};
-use jq_rust::{interpret, parse, Jv};
+use jq_rust::{interpret_with_source, parse, Jv};
 
 /// jqr - commandline JSON processor (Rust implementation of jq)
 #[derive(Parser, Debug)]
@@ -103,7 +103,7 @@ fn main() {
 
     let result = if args.null_input {
         // No input, run filter on null
-        run_filter(&expr, Jv::Null, &print_options, &args, &mut exit_code)
+        run_filter(&expr, Jv::Null, &print_options, &args, &mut exit_code, &args.filter)
     } else {
         process_input(&args, &print_options, &expr, &mut exit_code)
     };
@@ -124,8 +124,10 @@ fn run_filter(
     print_options: &JvPrintOptions,
     args: &Args,
     exit_code: &mut i32,
+    filter_source: &str,
 ) -> Result<(), String> {
-    let results = interpret(expr, input);
+    let results = interpret_with_source(expr, input, filter_source.to_string(), "<top-level>".to_string());
+    let mut error_count = 0;
 
     for result in results {
         match result {
@@ -148,9 +150,14 @@ fn run_filter(
             }
             Err(e) => {
                 eprintln!("jqr: error: {}", e);
+                error_count += 1;
                 *exit_code = 5;
             }
         }
+    }
+
+    if error_count > 0 {
+        eprintln!("jqr: {} error{}", error_count, if error_count == 1 { "" } else { "s" });
     }
 
     if args.join_output {
@@ -187,11 +194,11 @@ fn process_input(
 
             if args.slurp {
                 // Single string input
-                run_filter(expr, Jv::string(&content), print_options, args, exit_code)?;
+                run_filter(expr, Jv::string(&content), print_options, args, exit_code, &args.filter)?;
             } else {
                 // Line by line
                 for line in content.lines() {
-                    run_filter(expr, Jv::string(line), print_options, args, exit_code)?;
+                    run_filter(expr, Jv::string(line), print_options, args, exit_code, &args.filter)?;
                 }
             }
         } else if args.slurp {
@@ -209,7 +216,7 @@ fn process_input(
             }
 
             let arr = Jv::from_vec(values);
-            run_filter(expr, arr, print_options, args, exit_code)?;
+            run_filter(expr, arr, print_options, args, exit_code, &args.filter)?;
         } else {
             // Normal mode: process each JSON value
             let mut content = String::new();
@@ -220,7 +227,7 @@ fn process_input(
 
             for result in parse_json_stream(&content) {
                 let value = result.map_err(|e| format!("{}", e))?;
-                run_filter(expr, value, print_options, args, exit_code)?;
+                run_filter(expr, value, print_options, args, exit_code, &args.filter)?;
             }
         }
     }

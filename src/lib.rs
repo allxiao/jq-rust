@@ -13,8 +13,8 @@ pub mod regex_helper;
 pub mod testing;
 pub mod vm;
 
-pub use error::{JqError, Result};
+pub use error::{JqError, Result, RuntimeError, SourceInfo};
 pub use jv::Jv;
 pub use module::{get_module_search_path, set_module_search_path, ModuleLoader};
-pub use parser::{parse, parse_program_full, Expr, ExprKind};
-pub use vm::{interpret, Context, Interpreter};
+pub use parser::{parse, parse_program_full, Expr, ExprKind, Span};
+pub use vm::{interpret, interpret_with_source, Context, Interpreter};

@@ -4,9 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::context::{Binding, Context};
+use crate::error::SourceInfo;
 use crate::jv::{Jv, JvObject};
 use crate::parser::{
-    BinaryOp, Expr, ExprKind, FuncDef, Literal, ObjectKey, Pattern, PatternKind, StringPart,
+    BinaryOp, Expr, ExprKind, FuncDef, Literal, ObjectKey, Pattern, PatternKind, Span, StringPart,
 };
 
 /// Result of evaluating an expression - can produce multiple values
@@ -164,6 +165,32 @@ impl Interpreter {
         }
     }
 
+    /// Create an interpreter with source information for error formatting
+    pub fn with_source(source: String, filename: String) -> Self {
+        let source_info = SourceInfo::new(source, filename);
+        Interpreter {
+            ctx: Rc::new(RefCell::new(Context::with_source(source_info))),
+        }
+    }
+
+    /// Format an error message with source context if available
+    pub fn format_error(&self, message: &str, span: Span) -> String {
+        if let Some(source_info) = self.ctx.borrow().source_info() {
+            source_info.format_error(message, span)
+        } else {
+            message.to_string()
+        }
+    }
+
+    /// Format an error message with source context from a given context
+    fn format_error_with_ctx(ctx: &Rc<RefCell<Context>>, message: &str, span: Span) -> String {
+        if let Some(source_info) = ctx.borrow().source_info() {
+            source_info.format_error(message, span)
+        } else {
+            message.to_string()
+        }
+    }
+
     /// Evaluate an expression with the given input
     pub fn eval(&mut self, expr: &Expr, input: Jv) -> EvalResult {
         self.eval_expr(expr, input, self.ctx.clone())
@@ -192,11 +219,12 @@ impl Interpreter {
             ExprKind::Field(name) => {
                 let result = input.get_field(name);
                 if result.is_invalid() {
-                    Box::new(std::iter::once(Err(format!(
-                        "Cannot index {} with string \"{}\"",
-                        input.type_name(),
-                        name
-                    ))))
+                    let err_msg = Self::format_error_with_ctx(
+                        &ctx,
+                        &format!("Cannot index {} with string \"{}\"", input.type_name(), name),
+                        expr.span,
+                    );
+                    Box::new(std::iter::once(Err(err_msg)))
                 } else {
                     Box::new(std::iter::once(Ok(result)))
                 }
@@ -212,6 +240,7 @@ impl Interpreter {
                 let base_expr = base.clone();
                 let ctx_clone = ctx.clone();
                 let original_input = input.clone();
+                let expr_span = expr.span; // Capture span for error messages
 
                 let mut this = Interpreter { ctx: ctx.clone() };
 
@@ -240,6 +269,7 @@ impl Interpreter {
 
                             let base_val_for_index = base_val;
                             let optional_inner = optional;
+                            let ctx_for_error = ctx_clone.clone();
 
                             Box::new(
                                 index_results.filter_map(move |idx_result| match idx_result {
@@ -263,11 +293,16 @@ impl Interpreter {
                                                     Jv::Number(n) => format!("number ({})", n),
                                                     _ => idx_val.type_name().to_string(),
                                                 };
-                                                Some(Err(format!(
-                                                    "Cannot index {} with {}",
-                                                    base_val_for_index.type_name(),
-                                                    idx_desc
-                                                )))
+                                                let err_msg = Self::format_error_with_ctx(
+                                                    &ctx_for_error,
+                                                    &format!(
+                                                        "Cannot index {} with {}",
+                                                        base_val_for_index.type_name(),
+                                                        idx_desc
+                                                    ),
+                                                    expr_span,
+                                                );
+                                                Some(Err(err_msg))
                                             }
                                         } else {
                                             Some(Ok(result))
@@ -3813,9 +3848,17 @@ impl Interpreter {
                     return Ok(current);
                 }
                 // For other function calls, we can't delete from them
-                Err(format!("Cannot delete from expression: {}", target.kind.describe()))
+                Err(Self::format_error_with_ctx(
+                    &ctx,
+                    &format!("Cannot delete from expression: {}", target.kind.describe()),
+                    target.span,
+                ))
             }
-            _ => Err(format!("Cannot delete from expression: {}", target.kind.describe())),
+            _ => Err(Self::format_error_with_ctx(
+                &ctx,
+                &format!("Cannot delete from expression: {}", target.kind.describe()),
+                target.span,
+            )),
         }
     }
 
@@ -6919,10 +6962,18 @@ impl Interpreter {
                     {
                         use crate::jv::print_jv;
                         let formatted = print_jv(&result);
-                        return Err(format!("Invalid path expression with result {}", formatted));
+                        return Err(Self::format_error_with_ctx(
+                            &ctx,
+                            &format!("Invalid path expression with result {}", formatted),
+                            target.span,
+                        ));
                     }
                 }
-                Err(format!("Cannot assign to expression: {}", target.kind.describe()))
+                Err(Self::format_error_with_ctx(
+                    &ctx,
+                    &format!("Cannot assign to expression: {}", target.kind.describe()),
+                    target.span,
+                ))
             }
             ExprKind::Comma(left, right) => {
                 // (.a, .b) = value assigns value to both paths
@@ -6930,7 +6981,11 @@ impl Interpreter {
                     Self::apply_assignment(current, left, value.clone(), _path, ctx.clone())?;
                 Self::apply_assignment(result, right, value, _path, ctx)
             }
-            _ => Err(format!("Cannot assign to expression: {}", target.kind.describe())),
+            _ => Err(Self::format_error_with_ctx(
+                &ctx,
+                &format!("Cannot assign to expression: {}", target.kind.describe()),
+                target.span,
+            )),
         }
     }
 
@@ -7389,6 +7444,12 @@ fn recursive_merge(o1: &JvObject, o2: &JvObject) -> JvObject {
 /// Convenience function to interpret an expression
 pub fn interpret(expr: &Expr, input: Jv) -> EvalResult {
     let mut interp = Interpreter::new();
+    interp.eval(expr, input)
+}
+
+/// Interpret an expression with source information for rich error messages
+pub fn interpret_with_source(expr: &Expr, input: Jv, source: String, filename: String) -> EvalResult {
+    let mut interp = Interpreter::with_source(source, filename);
     interp.eval(expr, input)
 }
 

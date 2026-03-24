@@ -5,7 +5,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
+use crate::error::SourceInfo;
 use crate::jv::Jv;
 use crate::parser::FuncDef;
 
@@ -35,6 +37,8 @@ pub struct Context {
     parent: Option<Rc<RefCell<Context>>>,
     /// Built-in functions registry
     builtins: Rc<BuiltinRegistry>,
+    /// Source information for error formatting (shared across all contexts)
+    source_info: Option<Arc<SourceInfo>>,
 }
 
 /// Registry of built-in functions
@@ -259,17 +263,37 @@ impl Context {
             bindings: HashMap::new(),
             parent: None,
             builtins: Rc::new(BuiltinRegistry::new()),
+            source_info: None,
+        }
+    }
+
+    /// Create a new root context with source information for error formatting
+    pub fn with_source(source_info: SourceInfo) -> Self {
+        Context {
+            bindings: HashMap::new(),
+            parent: None,
+            builtins: Rc::new(BuiltinRegistry::new()),
+            source_info: Some(Arc::new(source_info)),
         }
     }
 
     /// Create a child context with this as parent
     pub fn child(parent: Rc<RefCell<Context>>) -> Self {
-        let builtins = parent.borrow().builtins.clone();
+        let parent_ref = parent.borrow();
+        let builtins = parent_ref.builtins.clone();
+        let source_info = parent_ref.source_info.clone();
+        drop(parent_ref);
         Context {
             bindings: HashMap::new(),
             parent: Some(parent),
             builtins,
+            source_info,
         }
+    }
+
+    /// Get source info for error formatting
+    pub fn source_info(&self) -> Option<&SourceInfo> {
+        self.source_info.as_ref().map(|arc| arc.as_ref())
     }
 
     /// Bind a value to a variable name (stored with $ prefix internally)
