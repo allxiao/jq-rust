@@ -5,10 +5,9 @@ edition = "2021"
 description = "A Rust implementation of jq - a lightweight and flexible command-line JSON processor"
 license = "MIT"
 repository = "https://github.com/allxiao/jq-rust"
-keywords = ["json", "jq", "cli", "filter", "query"]
-categories = ["command-line-utilities", "parsing"]
 readme = "README.md"
 authors = ["allxiao"]
+publish = false
 
 [dependencies]
 thiserror = "1.0"

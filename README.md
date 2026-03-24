@@ -1,7 +1,6 @@
 # jq-rust
 
 [![CI](https://github.com/allxiao/jq-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/allxiao/jq-rust/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/jq-rust.svg)](https://crates.io/crates/jq-rust)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **jq-rust** is a complete Rust implementation of [jq](https://jqlang.org/), the lightweight and flexible command-line JSON processor. The binary is named `jqr` for a shorter command.
@@ -20,12 +19,6 @@
 Download the latest binary for your platform from the [releases page](https://github.com/allxiao/jq-rust/releases).
 
 ### From Source
-
-```bash
-cargo install jq-rust
-```
-
-Or build from source:
 
 ```bash
 git clone https://github.com/allxiao/jq-rust.git
