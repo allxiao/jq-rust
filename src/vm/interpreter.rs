@@ -837,7 +837,7 @@ impl Interpreter {
             ExprKind::Object(entries) => self.eval_object(entries, input, ctx),
 
             ExprKind::FunctionCall { module, name, args } => {
-                self.eval_function_call(module.as_deref(), name, args, input, ctx)
+                self.eval_function_call(module.as_deref(), name, args, input, ctx, expr.span)
             }
 
             ExprKind::Variable(name) => {
@@ -847,10 +847,14 @@ impl Interpreter {
                 }
                 match ctx.borrow().lookup_value(name) {
                     Some(v) => Box::new(std::iter::once(Ok(v))),
-                    None => Box::new(std::iter::once(Err(format!(
-                        "variable ${} is not defined",
-                        name
-                    )))),
+                    None => {
+                        let err_msg = Self::format_error_with_ctx(
+                            &ctx,
+                            &format!("${} is not defined", name),
+                            expr.span,
+                        );
+                        Box::new(std::iter::once(Err(err_msg)))
+                    }
                 }
             }
 
@@ -1731,6 +1735,7 @@ impl Interpreter {
         args: &[Expr],
         input: Jv,
         ctx: Rc<RefCell<Context>>,
+        expr_span: Span,
     ) -> EvalResult {
         let arity = args.len();
 
@@ -1745,10 +1750,12 @@ impl Interpreter {
             if let Some(v) = ctx.borrow().lookup_value(&var_name) {
                 return Box::new(std::iter::once(Ok(v)));
             }
-            return Box::new(std::iter::once(Err(format!(
-                "{}::{}/{} is not defined",
-                mod_name, name, arity
-            ))));
+            let err_msg = Self::format_error_with_ctx(
+                &ctx,
+                &format!("{}::{}/{} is not defined", mod_name, name, arity),
+                expr_span,
+            );
+            return Box::new(std::iter::once(Err(err_msg)));
         }
 
         // Check for special built-in higher-order functions
@@ -1937,10 +1944,12 @@ impl Interpreter {
             }
         }
 
-        Box::new(std::iter::once(Err(format!(
-            "unknown function: {}/{}",
-            name, arity
-        ))))
+        let err_msg = Self::format_error_with_ctx(
+            &ctx,
+            &format!("{}/{} is not defined", name, arity),
+            expr_span,
+        );
+        Box::new(std::iter::once(Err(err_msg)))
     }
 
     fn call_user_function(
